@@ -5,12 +5,13 @@ from rayoptics.util.misc_math import normalize
 import re
 import io
 from contextlib import redirect_stdout
+from optic_model import test_opt_model
 
 file = 'test_opt.roa'
 
 
 # base_param
-def calc_loss(path2model):
+def calc_loss(path2model=None, *args, **kwargs):
     efl_for_loss = 5  # mm
     fD_for_loss = 2.1
     total_length_for_loss = 7.0  # mm
@@ -53,68 +54,8 @@ def calc_loss(path2model):
         number_of_surfaces = len(rows) - 2
         return thickness_list, thickness_material_list, thickness_air_list, number_of_surfaces
 
-    def test_opt_model(load=False):
-        if load:
-            opm = open_model(f'{file}', info=True)
-        else:
-            opm = OpticalModel()
-        sm = opm['seq_model']
-        osp = opm['optical_spec']
-        pm = opm['parax_model']
-        em = opm['ele_model']
-        pt = opm['part_tree']
-        ar = opm['analysis_results']
-        # osp.opt_model = true_osp.opt_model.copy()
-
-        if not load:
-
-            opm.system_spec.title = 'Cell Phone Lens - U.S. Patent 7,535,658'
-            opm.system_spec.dimensions = 'mm'
-            osp['pupil'] = PupilSpec(osp, key=['object', 'pupil'], value=2.5)
-            osp['fov'] = FieldSpec(osp, key=['object', 'angle'], value=0.0, is_relative=False, flds=[0., 5., 10.,
-                                                                                                     15., 20.],
-                                   )
-            osp['fov'].value = 0.0
-            osp['wvls'] = WvlSpec([(470., 1.0), (650, 1.0)], ref_wl=1)
-            opm.radius_mode = False
-
-            sm.gaps[0].thi = 1e10
-
-            sm.add_surface([0.274782, 1., 1.54, 75.])
-            sm.ifcs[sm.cur_surface].profile = EvenPolynomial(c=0.2747823174694503, cc=0.0,
-                                                             coefs=[0.0, 0.009109298409282469, -0.03374649200850791,
-                                                                    0.01797256809388843, -0.0050513483804677005, 0.0,
-                                                                    0.0,
-                                                                    0.0])
-            sm.ifcs[sm.cur_surface].interact_mode = 'transmit'
-            sm.set_stop()
-
-            sm.add_surface([0.135566, .5])
-            sm.ifcs[sm.cur_surface].profile = EvenPolynomial(c=0.13556582944950138, cc=0.0,
-                                                             coefs=[0.0, -0.002874728268075267, -0.03373322938525211,
-                                                                    0.004205227876537139, -0.0001705765222318475,
-                                                                    0.0, 0.0, 0.0])
-
-            sm.add_surface([-0.055210, 1., 1.67, 39.])
-            sm.ifcs[sm.cur_surface].profile = EvenPolynomial(c=-0.055209803982245384, cc=0.0,
-                                                             coefs=[0.0, -0.0231369463217776, 0.011956554928461116,
-                                                                    -0.017782670650182023, 0.004077846642272649, 0.0,
-                                                                    0.0, 0.0])
-
-            sm.add_surface([-0.256889, 4.21639])
-            sm.ifcs[sm.cur_surface].profile = Spherical(c=-0.2568888474926888)
-            sm.ifcs[-1].profile = EvenPolynomial(c=0.0, cc=0.0, coefs=[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-            opm.update_model()
-        sm.list_model()
-        sm.list_surfaces()
-        get_thichness(sm)
-        if not load:
-            opm.save_model(file)
-
-        return opm
-
     # opm = open_model(f'{path2model}', info=True)
-    opm = test_opt_model(load=False)
+    opm = test_opt_model(load=False, file=file, *args, **kwargs)
     sm = opm['seq_model']
     osp = opm['optical_spec']
     pm = opm['parax_model']
@@ -123,7 +64,7 @@ def calc_loss(path2model):
     ar = opm['analysis_results']
 
 
-    plt.figure(FigureClass=InteractiveLayout, opt_model=opm, is_dark=isdark).plot()
+    # plt.figure(FigureClass=InteractiveLayout, opt_model=opm, is_dark=isdark).plot()
 
     efl = pm.opt_model['analysis_results']['parax_data'].fod.efl
     fD = pm.opt_model['analysis_results']['parax_data'].fod.fno
@@ -141,9 +82,9 @@ def calc_loss(path2model):
     psf = SpotDiagramFigure(opm)
     test_psf = psf.axis_data_array[field][0][0][0]
     test_psf[:, 1] = test_psf[:, 1] - np.mean(test_psf[:, 1])
-    plt.plot(test_psf[:, 0], test_psf[:, 1], 'o')
-    plt.rcParams['figure.figsize'] = (8, 8)
-    plt.show()
+    # plt.plot(test_psf[:, 0], test_psf[:, 1], 'o')
+    # plt.rcParams['figure.figsize'] = (8, 8)
+    # plt.show()
 
     fld, wvl, foc = osp.lookup_fld_wvl_focus(0)
     sm.list_model()
@@ -209,8 +150,8 @@ def calc_loss(path2model):
     loss = loss_focus + loss_FD + loss_total_length + loss_min_thickness + loss_min_thickness_air + loss_enclosed_energy_all + loss_rms_all
     print(
         f'{loss_focus=}, {loss_FD=},  {loss_total_length=},  {loss_min_thickness=},  {loss_min_thickness_air=},  {loss_enclosed_energy_all=},  {loss_rms_all=}')
-    layout_plt0 = plt.figure(FigureClass=InteractiveLayout, opt_model=opm,
-                             do_draw_rays=True, do_paraxial_layout=False,
-                             is_dark=isdark).plot()
+    # layout_plt0 = plt.figure(FigureClass=InteractiveLayout, opt_model=opm,
+    #                          do_draw_rays=True, do_paraxial_layout=False,
+    #                          is_dark=isdark).plot()
     print(f'final loss:{loss}')
     return (loss)
