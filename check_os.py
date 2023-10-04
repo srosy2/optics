@@ -20,7 +20,7 @@ class Run:
         loss = calc_loss(path2model, *args, **kwargs)
         if loss < self.best_loss:
             self.best_loss = loss
-            with open('best.txt', 'a') as file:
+            with open('best_2.txt', 'a') as file:
                 file.write(f'{loss=}, best_param={kwargs} \n')
         elapsed_time = time.time() - t0
         print(f'{loss=}, {elapsed_time=} sec')

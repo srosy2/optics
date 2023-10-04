@@ -4,7 +4,9 @@ from rayoptics.environment import *
 # def test_opt_model(load=False, file='test_opt.roa', c1=0.2747823174694503, c2=0.13556582944950138,
 #                    c3=-0.055209803982245384, c4=-0.2568888474926888):
 def test_opt_model(load=False, file='test_opt.roa', l1=None, l2=None,
-                   l3=None, l4=None, l1_coefs=None, l2_coefs=None, l3_coefs=None):
+                   l3=None, l4=None, l1_coefs=None, l2_coefs=None, l3_coefs=None, l4_coefs=None):
+    if l4_coefs is None:
+        l4_coefs = [0.] * 8
     if l3_coefs is None:
         l3_coefs = [0.0, -0.0231369463217776, 0.011956554928461116,
                     -0.017782670650182023, 0.004077846642272649, 0.0,
@@ -66,7 +68,9 @@ def test_opt_model(load=False, file='test_opt.roa', l1=None, l2=None,
                                                          coefs=l3_coefs)
 
         sm.add_surface(l4)
-        sm.ifcs[sm.cur_surface].profile = Spherical(c=l4[0])
+        # sm.ifcs[sm.cur_surface].profile = Spherical(c=l4[0])
+        sm.ifcs[sm.cur_surface].profile = EvenPolynomial(c=l4[0], cc=0.,
+                                                         coefs=l4_coefs)
         sm.ifcs[-1].profile = EvenPolynomial(c=0.0, cc=0.0, coefs=[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
         opm.update_model()
     sm.list_model()
@@ -75,3 +79,23 @@ def test_opt_model(load=False, file='test_opt.roa', l1=None, l2=None,
         opm.save_model(file)
 
     return opm
+
+
+def make_optic_surface_m1(sm, conf: dict):
+    sm.add_surface(conf['surf'])
+    if conf['profile'] == 'EvenPolynomial':
+        sm.ifcs[sm.cur_surface].profile = EvenPolynomial(c=conf['surf'][0], cc=0.0,
+                                                         coefs=conf['coefs'])
+    elif conf['profile'] == 'Spherical':
+        sm.ifcs[sm.cur_surface].profile = EvenPolynomial(c=conf['surf'][0])
+    return sm
+
+
+def make_optic_surface_m2(sm, conf: dict):
+    if conf['type'] == 'linsa':
+        sm.add_surface([0., conf['t'], 0., 0.])
+    elif conf['type'] == 'air':
+        sm.add_surface([0., conf['t']])
+
+    sm.ifcs[sm.cur_surface].profile = EvenPolynomial(c=0., cc=0., coefs=[0.] * 8)
+    return sm

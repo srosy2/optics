@@ -52,7 +52,7 @@ def iterative_random_search(param, loss):
 if __name__ == '__main__':
     run = Run()
     main = run.main
-    search = 'random'
+    search = 'optimization'
     _l1 = [0.2747823174694503, 1., 1.54, 75.]
     _l2 = [0.13556582944950138, .5]
     _l3 = [-0.055209803982245384, 1., 1.67, 39.]
@@ -67,8 +67,9 @@ if __name__ == '__main__':
     _l3_coefs = [0.0, -0.0231369463217776, 0.011956554928461116,
                  -0.017782670650182023, 0.004077846642272649, 0.0,
                  0.0, 0.0]
+    _l4_coefs = [0.] * 8
     _best_param = {'l1': _l1, 'l2': _l2, 'l3': _l3, 'l4': _l4, 'l1_coefs': _l1_coefs, 'l2_coefs': _l2_coefs,
-                   'l3_coefs': _l3_coefs}
+                   'l3_coefs': _l3_coefs, 'l4_coefs': _l4_coefs}
     _best_loss = main(**_best_param)
     if search == 'random':
         iterative_random_search(_best_param, _best_loss)
