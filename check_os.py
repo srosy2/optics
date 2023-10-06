@@ -12,15 +12,23 @@ class Run:
         print(args, kwargs)
         if args:
             args = list(args[0])
-            l_value = [0, 4, 6, 10, 12]
-            kwargs = {f'l{1 + x}': args[l_value[x]: l_value[x + 1]] for x in range(len(l_value) - 1)}
-            args = args[12:]
-            kwargs.update({f'l{1 + x}_coefs': args[x * 8: (x + 1) * 8] for x in range(len(args) // 8)})
+            arg_len = len(args) // 11
+            kwargs = dict()
+            start = 0
+            for x in range(1, arg_len + 1):
+                kwargs.update({f'l{x}': args[start: start + 2 * (2**(x % 2))]})
+                start += 2 * (2**(x % 2))
+            # l_value = [0, 4, 6, 10, 12, 16, 18]
+            # kwargs = {f'l{1 + x}': args[l_value[x]: l_value[x + 1]] for x in range(len(l_value) - 1)}
+            args = args[start:]
+            for x in range(arg_len):
+                kwargs.update({f'l{1 + x}_coefs': args[x * 8: (x + 1) * 8]})
             args = ()
+            print(kwargs)
         loss = calc_loss(path2model, *args, **kwargs)
         if loss < self.best_loss:
             self.best_loss = loss
-            with open('best_2.txt', 'a') as file:
+            with open('best_4.txt', 'a') as file:
                 file.write(f'{loss=}, best_param={kwargs} \n')
         elapsed_time = time.time() - t0
         print(f'{loss=}, {elapsed_time=} sec')

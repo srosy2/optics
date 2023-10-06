@@ -1,12 +1,26 @@
 from rayoptics.environment import *
 
 
+def calc_n(k):
+    return 1.54 * k + 1.67 * (1 - k)
+
+
+def calc_abbe(k):
+    return 75 * k + 39 * (1 - k)
+
+
 # def test_opt_model(load=False, file='test_opt.roa', c1=0.2747823174694503, c2=0.13556582944950138,
 #                    c3=-0.055209803982245384, c4=-0.2568888474926888):
-def test_opt_model(load=False, file='test_opt.roa', l1=None, l2=None,
-                   l3=None, l4=None, l1_coefs=None, l2_coefs=None, l3_coefs=None, l4_coefs=None):
+def test_opt_model(load=False, file='test_opt.roa', l1=None, l2=None, l3=None, l4=None, l5=None, l6=None,
+                   l1_coefs=None, l2_coefs=None, l3_coefs=None, l4_coefs=None, l5_coefs=None, l6_coefs=None):
+
+    if l6_coefs is None:
+        l6_coefs = [0.] * 8
+    if l5_coefs is None:
+        l5_coefs = [0.] * 8
     if l4_coefs is None:
-        l4_coefs = [0.] * 8
+        l4_coefs = [0.0002340187438723439, -0.00037289446899150256, -0.00016258015978397658, 0.00010820979155398325,
+                    0.0003629318993145684, 0.0005579086378675218, 0.0005542867307349592, 1.4108760167032285e-05]
     if l3_coefs is None:
         l3_coefs = [0.0, -0.0231369463217776, 0.011956554928461116,
                     -0.017782670650182023, 0.004077846642272649, 0.0,
@@ -20,8 +34,13 @@ def test_opt_model(load=False, file='test_opt.roa', l1=None, l2=None,
                     0.01797256809388843, -0.0050513483804677005, 0.0,
                     0.0,
                     0.0]
+
+    if l6 is None:
+        l6 = [0, 2.716380727841776]
+    if l5 is None:
+        l5 = [0, 1, 1.6, 50.]
     if l4 is None:
-        l4 = [-0.2568888474926888, 4.21639]
+        l4 = [-0.2568888474926888, .5]
     if l3 is None:
         l3 = [-0.055209803982245384, 1., 1.67, 39.]
     if l2 is None:
@@ -71,6 +90,13 @@ def test_opt_model(load=False, file='test_opt.roa', l1=None, l2=None,
         # sm.ifcs[sm.cur_surface].profile = Spherical(c=l4[0])
         sm.ifcs[sm.cur_surface].profile = EvenPolynomial(c=l4[0], cc=0.,
                                                          coefs=l4_coefs)
+        sm.add_surface(l5)
+        sm.ifcs[sm.cur_surface].profile = EvenPolynomial(c=l5[0], cc=0.,
+                                                         coefs=l5_coefs)
+        sm.add_surface(l6)
+        sm.ifcs[sm.cur_surface].profile = EvenPolynomial(c=l6[0], cc=0.,
+                                                         coefs=l6_coefs)
+
         sm.ifcs[-1].profile = EvenPolynomial(c=0.0, cc=0.0, coefs=[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
         opm.update_model()
     sm.list_model()
