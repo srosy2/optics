@@ -43,6 +43,7 @@ class OpticEnv:
     """
 
     def __init__(self):
+        self.num_envs = 1
         self.optic = None
         self.emb = nn.Embedding(2, 12)
         self.pos_emb = PositionalEncoding(12, max_len=140)
@@ -156,6 +157,9 @@ class OpticEnv:
         for conf_surf in conf:
             make_optic_surface_m2(self.optic['seq_model'], conf_surf)
         self.optic.update_model()
+        
+    def sample(self):
+        pass
 
     def step_m1(self, conf):
         self.step_pass_m1 += 1
@@ -305,3 +309,4 @@ class OpticEnv:
         loss_rms_all = loss_rms_all / temp
         loss = loss_focus + loss_FD + loss_total_length + loss_min_thickness + loss_min_thickness_air + loss_enclosed_energy_all + loss_rms_all
         return loss, None
+
