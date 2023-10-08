@@ -14,18 +14,7 @@ import torch.optim as optim
 from stable_baselines3.common.buffers import ReplayBuffer
 from torch.utils.tensorboard import SummaryWriter
 from env import OpticEnv
-
-
-class Encoder(nn.TransformerEncoder):
-    pass
-
-
-class Decoder(nn.TransformerDecoder):
-    pass
-
-
-class Transformer(nn.Transformer):
-    pass
+from transformer import Seq2SeqTransformer
 
 
 def make_env(env_id, seed, idx, capture_video, run_name):
@@ -122,6 +111,7 @@ class OptPredictor:
         self.batch_size = batch_size
         self.total_timesteps = total_timesteps
         self.t = 0
+        self.backbone = Seq2SeqTransformer()
         self.actor = Actor()
         self.qf1 = SoftQNetwork()
         self.qf2 = SoftQNetwork()
@@ -129,8 +119,10 @@ class OptPredictor:
         self.qf2_target = SoftQNetwork()
         self.qf1_target.load_state_dict(self.qf1.state_dict())
         self.qf2_target.load_state_dict(self.qf2.state_dict())
-        self.q_optimizer = optim.Adam(list(self.qf1.parameters()) + list(self.qf2.parameters()), lr=q_lr)
-        self.actor_optimizer = optim.Adam(list(self.actor.parameters()), lr=policy_lr)
+        self.q_optimizer = optim.Adam(list(self.backbone.parameters()) + list(self.qf1.parameters()) +
+                                      list(self.qf2.parameters()), lr=q_lr)
+        self.actor_optimizer = optim.Adam(list(self.backbone.parameters()) + list(self.actor.parameters()),
+                                          lr=policy_lr)
         self.autotune = autotune
         self.metric_track = dict()
         if autotune:
