@@ -6,8 +6,8 @@ import re
 import io
 from contextlib import redirect_stdout
 
-file = 'test_opt.roa'
 
+file = 'test_opt.roa'
 
 # base_param
 def calc_loss(path2model):
