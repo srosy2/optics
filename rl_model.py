@@ -6,6 +6,7 @@ import time
 from distutils.util import strtobool
 
 import gym
+from gymnasium.spaces import Space
 import numpy as np
 import torch
 import torch.nn as nn
@@ -15,6 +16,8 @@ from stable_baselines3.common.buffers import ReplayBuffer
 from torch.utils.tensorboard import SummaryWriter
 from env import OpticEnv
 from transformer import Seq2SeqTransformer
+from stable_baselines3.common.save_util import save_to_pkl, load_from_pkl
+from pathlib import Path
 
 
 def make_env(env_id, seed, idx, capture_video, run_name):
@@ -51,18 +54,22 @@ LOG_STD_MIN = -5
 
 
 class Actor(nn.Module):
-    def __init__(self, action_space=12, obs_space=100, high=1., low=0.):
+    def __init__(self, action_space=12, obs_space=100):
         super().__init__()
         self.fc1 = nn.Linear(obs_space, 256)
         self.fc2 = nn.Linear(256, 256)
         self.fc_mean = nn.Linear(256, action_space)
         self.fc_logstd = nn.Linear(256, action_space)
+        self.active_action_air = np.array([1., 1., 0., 1., 1., 1., 1., 1., 1., 1., 1., 1.])
+        self.active_action_lins = np.array([1.] * 11 + [0.])
         # action rescaling
         self.register_buffer(
-            "action_scale", torch.tensor((high - low) / 2.0, dtype=torch.float32)
+            "action_scale", torch.tensor([0.5, 3.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5],
+                                         dtype=torch.float32)
         )
         self.register_buffer(
-            "action_bias", torch.tensor((high + low) / 2.0, dtype=torch.float32)
+            "action_bias", torch.tensor([0.5, 3.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5],
+                                        dtype=torch.float32)
         )
 
     def forward(self, x):
@@ -80,15 +87,13 @@ class Actor(nn.Module):
         std = log_std.exp()
         normal = torch.distributions.Normal(mean, std)
         x_t = normal.rsample()  # for reparameterization trick (mean + std * N(0,1))
-        y_t = 0.5 * (torch.tanh(x_t) + 1)
+        y_t = torch.tanh(x_t)
         action = y_t * self.action_scale + self.action_bias
-        action = abs(action)
         log_prob = normal.log_prob(x_t)
         # Enforcing Action Bound
         log_prob -= torch.log(self.action_scale * (1 - y_t.pow(2)) + 1e-6)
         log_prob = log_prob.sum(1, keepdim=True)
-        mean = 0.5 * (torch.tanh(mean) + 1) * self.action_scale + self.action_bias
-        mean = abs(mean)
+        mean = torch.tanh(mean) * self.action_scale + self.action_bias
         return action, log_prob, mean
 
 
@@ -111,8 +116,10 @@ class OptPredictor:
         self.batch_size = batch_size
         self.total_timesteps = total_timesteps
         self.t = 0
-        self.backbone = Seq2SeqTransformer()
+        self.plato = 0
+        self.best_loss = float('inf')
         self.actor = Actor()
+        self.backbone = Seq2SeqTransformer(self.actor, 3, 3, 12, 6, 4, 4, 128)
         self.qf1 = SoftQNetwork()
         self.qf2 = SoftQNetwork()
         self.qf1_target = SoftQNetwork()
@@ -132,7 +139,7 @@ class OptPredictor:
             self.a_optimizer = optim.Adam([self.log_alpha], lr=q_lr)
         else:
             self.alpha = alpha
-        self.rb = ReplayBuffer(buffer_size, 12, 12, self.device, handle_timeout_termination=True)
+        self.rb = ReplayBuffer(buffer_size, Space([80]), Space([13]), self.device, handle_timeout_termination=True)
 
     def update_target_network(self):
         for param, target_param in zip(self.qf1.parameters(), self.qf1_target.parameters()):
@@ -220,6 +227,7 @@ class OptPredictor:
             "actor_optim": self.actor_optimizer.state_dict(),
             "sac_log_alpha": self.log_alpha,
             "sac_log_alpha_optim": self.a_optimizer.state_dict(),
+            "transformer": self.backbone.state_dict(),
             "total_it": self.t,
         }
 
@@ -240,22 +248,41 @@ class OptPredictor:
         self.a_optimizer.load_state_dict(
             state_dict=state_dict["sac_log_alpha_optim"]
         )
-
+        self.backbone.load_state_dict(state_dict=state_dict['transformer'])
         self.t = state_dict["total_it"]
 
     def save_info(self):
         list(map(lambda key, value: self.writer.add_scalar(f"losses/{key}", value, self.t),
                  self.metric_track.items()))
 
-    def get_data(self, obs):
-        if self.t < self.learning_starts:
-            actions = np.array([self.env.sample() for _ in range(self.env.num_envs)])
+    def get_data(self, feature_env, feature_loss):
+        if self.t < self.learning_starts or self.plato > 10:
+            actions = self.env.sample()
+            full_obs = self.backbone.decode_with_target(feature_env, feature_loss, actions)
+            full_obs = full_obs[:, :-1, :]
         else:
-            actions, _, _ = self.actor.get_action(torch.Tensor(obs).to(self.device))
+            full_obs, actions = self.backbone.decode_without_target(feature_env, feature_loss)
             actions = actions.detach().cpu().numpy()
-
+        obs = full_obs[:, :-1, :]
+        next_obs = full_obs[:, 1:, :]
         # TRY NOT TO MODIFY: execute the game and log data.
-        next_obs, rewards, dones, infos = self.env.step_m1(actions)
+        return_feature_env, return_feature_loss, loss, reward = self.env.step_m1(actions)
+        if loss is None:
+            return_feature_env, return_feature_loss, loss = feature_env, feature_loss, float('inf')
+        elif self.plato > 10 or self.t < self.learning_starts:
+            self.plato = 0
+            self.best_loss = loss
+        elif loss < self.best_loss:
+            self.plato = 0
+            self.best_loss = loss
+        else:
+            self.plato += 1
+        dones = np.array([False] * (actions.shape[1] - 1) + [True])
+        infos = [{'type': 'lins'}, {'type': 'air'}] * (actions.shape[1] // 2)
+        rewards = [0.] * (actions.shape[1] - 1) + [reward]
+        actions = actions.transpose(1, 0)
+        obs = obs.transpose(1, 0)
+        next_obs = next_obs.transpose(1, 0)
 
         # TRY NOT TO MODIFY: record rewards for plotting purposes
 
@@ -263,15 +290,29 @@ class OptPredictor:
         self.rb.add(obs, next_obs, actions, rewards, dones, infos)
 
         # TRY NOT TO MODIFY: CRUCIAL step easy to overlook
-        return next_obs
+        return return_feature_env, return_feature_loss, loss
 
-    def start(self):
-        obs = self.env.reset()
+    def start(self, load_model=False, load_rb=False):
+        if load_rb:
+            self.rb = load_from_pkl('sac_replay_buffer', 0)
+        if load_model:
+            policy_file = Path(os.path.join('model', f"checkpoint_{self.t}.pt"))
+            self.load_state_dict(torch.load(policy_file))
+        feature_env, feature_loss, self.best_loss = self.env.reset()
         for _ in range(self.total_timesteps):
             self.t += 1
-            obs = self.get_data(obs)
+            feature_env, feature_loss, loss = self.get_data(feature_env, feature_loss)
+
+            if self.t % 100 == 0:
+                save_to_pkl('sac_replay_buffer', self.rb, 0)
+
             if self.t > self.learning_starts:
                 self.train(self.rb.sample(self.batch_size))
                 if self.t % 10 == 0:
                     self.save_info()
+                if self.t % 100 == 0:
+                    torch.save(
+                        self.state_dict(),
+                        os.path.join('model', f"checkpoint_{self.t}.pt"),
+                    )
         self.writer.close()

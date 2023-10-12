@@ -81,8 +81,19 @@ def test_opt_model(load=False, file='test_opt.roa', l1=None, l2=None,
     return opm
 
 
+def calc_n(k):
+    return 1.54 * k + 1.67 * (1 - k)
+
+
+def calc_abbe(k):
+    return 75 * k + 39 * (1 - k)
+
+
 def make_optic_surface_m1(sm, conf: dict):
-    sm.add_surface(conf['surf'])
+    if conf['type'] == 'linsa':
+        sm.add_surface(conf['surf'])
+    elif conf['type'] == 'air':
+        sm.add_surface(conf['surf'][:-2])
     if conf['profile'] == 'EvenPolynomial':
         sm.ifcs[sm.cur_surface].profile = EvenPolynomial(c=conf['surf'][0], cc=0.0,
                                                          coefs=conf['coefs'])
@@ -99,3 +110,16 @@ def make_optic_surface_m2(sm, conf: dict):
 
     sm.ifcs[sm.cur_surface].profile = EvenPolynomial(c=0., cc=0., coefs=[0.] * 8)
     return sm
+
+
+def prepare_conf_from_arr(arr):
+    confs = list()
+    for i in range(arr.shape[1]):
+        conf = dict()
+        if i % 2 == 0:
+            conf.update({'type': 'linsa'})
+        else:
+            conf.update({'type': 'air'})
+        conf.update({'profile': 'EvenPolynomial', 'surf': arr[:4, i], 'coefs': arr[4:12, i]})
+        confs.append(conf)
+    return confs

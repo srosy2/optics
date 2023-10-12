@@ -4,7 +4,57 @@ from scipy.stats import uniform
 from tqdm import tqdm
 from check_os import Run
 from scipy.optimize import minimize
+from optic_model import calc_n, calc_abbe
 
+
+def empty_start_random_search(quantity):
+    d_coef = 0.02
+    d_c = 0.5
+    d_t = 7
+    d_t_m = 3
+    k = 1
+    rng = np.random.RandomState(1)
+    random_uniform_scale = list()
+    for x in range(quantity):
+        random_uniform_scale.append(uniform(loc=-d_c, scale=2 * d_c))
+        random_uniform_scale.append(uniform(loc=0, scale=d_t))
+        random_uniform_scale.append(uniform(loc=0, scale=k))
+        random_uniform_scale.append(uniform(loc=-d_c, scale=2 * d_c))
+        random_uniform_scale.append(uniform(loc=0, scale=d_t))
+    for x in range(16 * quantity):
+        random_uniform_scale.append(uniform(loc=-d_coef, scale=2 * d_coef))
+    random_uniform_scale.append(uniform(loc=0, scale=d_t_m))
+    for _ in tqdm(range(10000)):
+        values = [uni.rvs(random_state=rng) for uni in random_uniform_scale]
+        free_space = 7 - values[-1]
+        sum_space = 0
+        for x in range(quantity):
+            sum_space += values[x * 5 + 1]
+            sum_space += values[x * 5 + 4]
+        if sum_space > free_space:
+            norm = free_space / sum_space
+            for x in range(quantity):
+                values[x * 5 + 1] *= norm
+                values[x * 5 + 4] *= norm
+        delete = 0
+        for x in range(quantity):
+            if values[x * 5 + 1] < 0.1:
+                delete += 0.1 - values[x * 5 + 1]
+                values[x * 5 + 1] = 0.1
+
+        for x in range(quantity):
+            if values[x * 5 + 4] > delete / quantity:
+                values[x * 5 + 4] -= delete / quantity
+        param_values = list()
+        for x in range(quantity):
+            for i in range(5):
+                if i == 2:
+                    param_values.append(calc_n(values[x * 5 + i]))
+                    param_values.append(calc_abbe(values[x * 5 + i]))
+                else:
+                    param_values.append(values[x * 5 + i])
+        param_values.extend(values[quantity * 5: -1])
+        main(np.array(param_values))
 
 def random_search_param(d, best_param, best_loss):
     # c1 = best_param['c1']
