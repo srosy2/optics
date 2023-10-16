@@ -36,16 +36,33 @@ class PositionalEncoding(nn.Module):
 class TokenEmbedding(nn.Module):
     def __init__(self, vocab_size: int, emb_size):
         super(TokenEmbedding, self).__init__()
-        self.fc = nn.Linear(13, emb_size)
+        self.fc = nn.Linear(12, emb_size)
         self.embedding = nn.Embedding(vocab_size, emb_size)
         self.emb_size = emb_size
         self.transform = sequential_transforms([tensor_transform, collate_fn])
 
     def forward(self, features: Tensor):
-        tokens = self.transform(torch.tensor([AIR_IDX if x % 2 else LINS_IDX for x in range(
-            features.shape[1])]).type(torch.long))
+        if type(features) != list:
+            tokens = self.transform(torch.tensor([AIR_IDX if x % 2 else LINS_IDX for x in range(
+                features.shape[1])]).type(torch.long))
+        else:
+            tokens = collate_fn([tensor_transform([AIR_IDX if x % 2 else LINS_IDX for x in range(
+                         y.shape[0])]) for y in features])
+        # tokens = self.transform(torch.tensor([tensor_transform([AIR_IDX if x % 2 else LINS_IDX for x in range(
+        #          y.shape[0])]) for y in features]))
+        # print(torch.tensor([[AIR_IDX if x % 2 else LINS_IDX for x in range(
+        #          y.shape[0])] for y in features]).shape)
+        # print(features)
+        # print(tokens)
         embeddings = self.embedding(tokens.long()) * math.sqrt(self.emb_size)
-        embeddings[:, 1:-1, :] += self.fc(features)
+        # print(f'embeddings shape  {embeddings.shape}')
+        for i in range(embeddings.shape[0]):
+            feature = features[i]
+            if len(feature.shape) > 1:
+                if len(feature.shape) == 2:
+                    embeddings[:, 1: 1 + feature.shape[0], :] += self.fc(feature.type(torch.float)).view(1, -1, 48)
+                else:
+                    embeddings[:, 1: 1 + feature.shape[1], :] += self.fc(feature.type(torch.float)).view(1, -1, 48)
         return embeddings, tokens
 
 
@@ -69,7 +86,8 @@ class Seq2SeqTransformer(nn.Module):
                                           num_encoder_layers=num_encoder_layers,
                                           num_decoder_layers=num_decoder_layers,
                                           dim_feedforward=dim_feedforward,
-                                          dropout=dropout)
+                                          dropout=dropout,
+                                          batch_first=True)
         self.generator = actor
         self.src_tok_emb = TokenEmbedding(src_vocab_size, emb_size)
         self.tgt_tok_emb = TokenEmbedding(tgt_vocab_size, emb_size)
@@ -80,13 +98,14 @@ class Seq2SeqTransformer(nn.Module):
                 src: Tensor,
                 trg: Tensor,):
         src_emb, src_tokens = self.src_tok_emb(src)
+        # print(f'shape src_emb {src_emb.shape}')
         src_emb = self.positional_encoding(src_emb)
         tgt_emb, tgt_tokens = self.tgt_tok_emb(trg)
         tgt_emb = self.positional_encoding(tgt_emb)
         src_mask, tgt_mask, src_padding_mask, tgt_padding_mask = create_mask(src_tokens, tgt_tokens)
         outs = self.transformer(src_emb, tgt_emb, src_mask, tgt_mask, None,
                                 src_padding_mask, tgt_padding_mask, src_padding_mask)
-        return self.generator(outs)
+        return outs
 
     def encode(self, src: Tensor):
         src_emb, src_tokens = self.src_tok_emb(src)
@@ -105,41 +124,61 @@ class Seq2SeqTransformer(nn.Module):
     def greedy_decode(self, src, max_len, lfr=None):
 
         memory = self.encode(src)
-        ys = torch.tensor([])
+        ys = torch.tensor([[]])
         memory = memory.to(self.device)
         for i in range(max_len - 1):
             out = self.decode(ys, memory)
-            pred = self.generator.get_action(torch.cat([out[:, -1], lfr.view(1, -1)]))
-
-            ys = torch.cat([ys, pred], dim=0)
-            if i % 2 == 1 and pred[-1] > 0.5:
+            pred, _, _ = self.generator.get_action(torch.cat([out[:, -1, :], lfr.view(1, -1)], dim=1).type(torch.float),
+                                                   [[{'type': 'lins'}, {'type': 'air'}][i % 2]])
+            if i == 0:
+                ys = pred.view(1, 1, 12)
+            else:
+                ys = torch.cat([ys, pred.view(1, 1, 12)], dim=1)
+            if i % 2 == 1 and pred[0, -1] > 0.5:
                 break
-
+        out = self.decode(ys, memory)
         return ys, out
 
     # actual function to translate input sentence into target language
     def decode_without_target(self, src_sentence: torch.Tensor, lfr=None):
-        src = self.transform(src_sentence).view(1, -1)
+        src = src_sentence.view(1, *src_sentence.shape)
 
         tgt_pred, tgt_obs = self.greedy_decode(
             src, max_len=15, lfr=lfr)
-        tgt_pred = tgt_pred.flatten()
+        tgt_obs = torch.cat([tgt_obs, torch.cat([lfr] * tgt_obs.shape[1]).view(1, tgt_obs.shape[1], -1)], dim=2)
         return tgt_pred, tgt_obs
 
     def decode_with_target(self, src, lfr, tgt):
-        src = src.to(self.device)
-        tgt = tgt.to(self.device)
+        if type(src) == list:
+            src = list(map(lambda x: x.to(self.device), src))
+            tgt = list(map(lambda x: x.to(self.device), tgt))
+        else:
+            src = src.to(self.device)
+            tgt = tgt.to(self.device)
 
+        # print(f'src {src}')
+        # print('---------------------------------------')
+        # print(f'tgt {tgt}')
         tgt_obs = self(src, tgt)
-        tgt_obs = torch.cat([tgt_obs, torch.cat([lfr] * tgt_obs.shape[1]).view(1, tgt_obs.shape[1], -1)], dim=2)
+        # print(tgt_obs.shape)
+        tgt_obs = torch.cat([tgt_obs, torch.cat([lfr] * tgt_obs.shape[1]).view(tgt_obs.shape[0],
+                                                                               tgt_obs.shape[1], -1)], dim=2)
 
         return tgt_obs
 
 
-def collate_fn(src_batch, tgt_batch):
-    src_batch = pad_sequence(src_batch, padding_value=PAD_IDX)
-    tgt_batch = pad_sequence(tgt_batch, padding_value=PAD_IDX)
-    return src_batch, tgt_batch
+def collate_fn(src_batch, tgt_batch=None):
+    if type(src_batch) != list:
+        src_batch = pad_sequence(src_batch.view(1, -1), padding_value=PAD_IDX, batch_first=True)
+    else:
+        src_batch = pad_sequence(src_batch, padding_value=PAD_IDX, batch_first=True)
+    if tgt_batch is not None:
+        if type(tgt_batch) != list:
+            tgt_batch = pad_sequence(tgt_batch.view(1, -1), padding_value=PAD_IDX, batch_first=True)
+        else:
+            tgt_batch = pad_sequence(tgt_batch, padding_value=PAD_IDX, batch_first=True)
+        return src_batch, tgt_batch
+    return src_batch
 
 
 def generate_square_subsequent_mask(sz):
@@ -160,7 +199,7 @@ def create_mask(src, tgt):
     return src_mask, tgt_mask, src_padding_mask, tgt_padding_mask
 
 
-def sequential_transforms(*transforms):
+def sequential_transforms(transforms):
     def func(txt_input):
         for transform in transforms:
             txt_input = transform(txt_input)

@@ -1,3 +1,4 @@
+import torch
 from sklearn.model_selection import ParameterSampler
 import numpy as np
 from scipy.stats import uniform
@@ -55,6 +56,62 @@ def empty_start_random_search(quantity):
                     param_values.append(values[x * 5 + i])
         param_values.extend(values[quantity * 5: -1])
         main(np.array(param_values))
+
+
+def scale_dtm(quantity):
+    d_t_m = 3
+    if quantity <= 3:
+        return d_t_m
+    elif quantity >= 7:
+        return 0.
+    return d_t_m - ((3 / 4) * (quantity - 3))
+
+
+def empty_start_random(quantity):
+    d_coef = 0.02
+    d_c = 0.5
+    d_t = 7
+    d_t_m = scale_dtm(quantity)
+    k = 1
+    # rng = np.random.RandomState(3)
+    random_uniform_scale = list()
+    for x in range(2 * quantity):
+        random_uniform_scale.append(uniform(loc=-d_c, scale=2 * d_c))
+        random_uniform_scale.append(uniform(loc=0, scale=d_t))
+        if x % 2 == 0:
+            random_uniform_scale.append(uniform(loc=0, scale=k))
+        else:
+            random_uniform_scale.append(uniform(loc=0., scale=0.))
+        for _ in range(8):
+            random_uniform_scale.append(uniform(loc=-d_coef, scale=2 * d_coef))
+    random_uniform_scale.append(uniform(loc=0, scale=d_t_m))
+
+    values = [uni.rvs() for uni in random_uniform_scale]
+    free_space = 7 - values[-1]
+    sum_space = 0
+    for x in range(2 * quantity):
+        sum_space += values[x * 11 + 1]
+
+    if sum_space > free_space:
+        norm = free_space / sum_space
+        for x in range(2 * quantity):
+            values[x * 11 + 1] *= norm
+
+    delete = 0
+    for x in range(quantity):
+        if values[2 * x * 11 + 1] < 0.1:
+            delete += 0.1 - values[2 * x * 11 + 1]
+            values[2 * x * 11 + 1] = 0.1
+
+    for x in range(quantity):
+        if values[(2 * x + 1) * 11 + 1] > delete / quantity:
+            values[(2 * x + 1) * 11 + 1] -= delete / quantity
+    values = np.array(values[:-1]).reshape(2 * quantity, 11)
+    feature_done = np.zeros(2 * quantity)
+    feature_done[-1] = 1
+
+    return np.concatenate([values, feature_done.reshape(-1, 1)], axis=1)
+
 
 def random_search_param(d, best_param, best_loss):
     # c1 = best_param['c1']

@@ -10,7 +10,7 @@ import torch.nn as nn
 import torch
 from torch import Tensor
 from features_loss import compute_third_order_cast
-from search_param import empty_start_random_search
+from search_param import empty_start_random
 
 
 class PositionalEncoding(nn.Module):
@@ -63,7 +63,7 @@ class OpticEnv:
     def reset(self, model=1, quantity=2):
         self.step_pass_m1 = 0
         self.step_pass_m2 = 0
-        self.optic = OpticalModel()
+        self.optic = self.set_env_opm()
         if model == 1:
             conf = self.reset_conf_1()
             self.create_surf_from_conf_m1(conf)
@@ -86,7 +86,7 @@ class OpticEnv:
     def reward(self, upp_low_bounds, loss_rms_all, return_reward):
         reward = None
         bounds_reward = - sum([bound > 0 for bound in upp_low_bounds]) * 5
-        rms_reward = 1 / ((loss_rms_all / 20) ** 2 + 1 / 15)
+        rms_reward = 1 / ((loss_rms_all / 100) ** 2 + 1 / 15)
         if return_reward:
             reward = 0
             reward += bounds_reward - self.old_bound_reward
@@ -116,20 +116,20 @@ class OpticEnv:
     @staticmethod
     def reset_conf_1():
         conf = [{'type': 'linsa', 'profile': 'EvenPolynomial', 'surf': [0.2791158099269407, 1.0037479911346872,
-                                                                        1.5261812896231235, 75.00008653474656],
+                                                                        1.],
                  'coefs': [0.012868466936135371, 0.005063302914189549,
                            -0.03414342498052082, 0.027768776932613096, -0.010775548959399424, -0.008060620851500088,
                            0.009012318437796152, -0.0024075426547856284]},
-                {'type': 'air', 'profile': 'EvenPolynomial', 'surf': [0.14207869840075518, 0.5096391331756961, 0., 0.],
+                {'type': 'air', 'profile': 'EvenPolynomial', 'surf': [0.14207869840075518, 0.5096391331756961, 0.],
                  'coefs': [0.0112679970210799, -0.014238612981715795, -0.03185377276780764, 0.0015606715704450064,
                            0.005005532685212877, -0.003771280956461448, 0.0010002353156377192,
                            -9.240401608152898e-05]},
                 {'type': 'linsa', 'profile': 'EvenPolynomial',
-                 'surf': [-0.05626882503338093, 1.0030754980529646, 1.6777742569666922, 39.00015787264238],
+                 'surf': [-0.05626882503338093, 1.0030754980529646, 0.],
                  'coefs': [-0.002048763086163696, -0.0220739165445026, 0.004594937414782493, -0.01878687077411235,
                            0.009011927520039275, -0.0004573985435062217, -0.001679688857711538,
                            0.00048263606187476426]},
-                {'type': 'air', 'profile': 'EvenPolynomial', 'surf': [-0.2563566127076245, 4.216404623070566, 0., 0.],
+                {'type': 'air', 'profile': 'EvenPolynomial', 'surf': [-0.2563566127076245, 4.216404623070566, 0.],
                  'coefs': [0.] * 8}]
         return conf
 
@@ -147,11 +147,11 @@ class OpticEnv:
                 features.extend(conf_surf['coefs'])
             elif conf_surf['profile'] == 'Spherical':
                 features.extend([0.] * 8)
-            features = torch.tensor(features)
             all_features.append(features)
         feature_done = torch.zeros(len(all_features))
         feature_done[-1] = 1.
-        return torch.cat([torch.cat(all_features), feature_done])
+        # print(torch.cat(all_features).view(-1, 11))
+        return torch.cat([torch.tensor(all_features), feature_done.view(-1, 1)], dim=1)
 
     def prepare_m2_feature_from_conf(self, conf: list):
         all_features = list()
@@ -180,8 +180,8 @@ class OpticEnv:
     def sample(self):
         probability = np.array([0.5, 0.5, 0.3, 0.2, 0.15, 0.1, 0.05])
         probability = probability / np.sum(probability)
-        quantity = np.random.choice(list(range(1, 8)), 1, probability)
-        return empty_start_random_search(quantity[0])
+        quantity = np.random.choice(list(range(1, 8)), 1, p=probability)
+        return empty_start_random(quantity[0])
 
     def step_m1(self, actions):
         self.step_pass_m1 += 1
@@ -191,7 +191,10 @@ class OpticEnv:
             self.create_surf_from_conf_m1(conf)
         except:
             return None, None, None, self.error_reward
-        loss, loss_feature, reward = self.calc_loss_from_model(return_reward=True)
+        try:
+            loss, loss_feature, reward = self.calc_loss_from_model(return_reward=True)
+        except:
+            return None, None, None, self.error_reward
         feature_env, feature_loss = actions, loss_feature
         return feature_env, feature_loss, loss, reward
 
@@ -255,7 +258,6 @@ class OpticEnv:
         pt = opm['part_tree']
         ar = opm['analysis_results']
 
-        features = compute_third_order_cast(opm)
 
         # plt.figure(FigureClass=InteractiveLayout, opt_model=opm, is_dark=isdark).plot()
 
@@ -281,7 +283,9 @@ class OpticEnv:
         sm.list_surfaces()
         efl = pm.opt_model['analysis_results']['parax_data'].fod.efl
 
+
         pm.first_order_data()
+        features = compute_third_order_cast(opm)
         opm.update_model()
 
         # total_length=0
@@ -297,7 +301,7 @@ class OpticEnv:
             loss_FD = 0
 
         thickness_list, thickness_material_list, thickness_air_list, number_of_surfaces = get_thichness(sm)
-        print(thickness_list, thickness_material_list, thickness_air_list, number_of_surfaces)
+        # print(thickness_list, thickness_material_list, thickness_air_list, number_of_surfaces)
         total_length = np.sum(thickness_list[1:])
         min_thickness = np.min(thickness_material_list)
         min_thickness_air = np.min(thickness_air_list)

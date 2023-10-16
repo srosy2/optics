@@ -91,9 +91,9 @@ def calc_abbe(k):
 
 def make_optic_surface_m1(sm, conf: dict):
     if conf['type'] == 'linsa':
-        sm.add_surface(conf['surf'])
+        sm.add_surface([conf['surf'][0], conf['surf'][1], calc_n(conf['surf'][2]), calc_abbe(conf['surf'][2])])
     elif conf['type'] == 'air':
-        sm.add_surface(conf['surf'][:-2])
+        sm.add_surface(conf['surf'][:-1])
     if conf['profile'] == 'EvenPolynomial':
         sm.ifcs[sm.cur_surface].profile = EvenPolynomial(c=conf['surf'][0], cc=0.0,
                                                          coefs=conf['coefs'])
@@ -114,12 +114,12 @@ def make_optic_surface_m2(sm, conf: dict):
 
 def prepare_conf_from_arr(arr):
     confs = list()
-    for i in range(arr.shape[1]):
+    for i in range(arr.shape[0]):
         conf = dict()
         if i % 2 == 0:
             conf.update({'type': 'linsa'})
         else:
             conf.update({'type': 'air'})
-        conf.update({'profile': 'EvenPolynomial', 'surf': arr[:4, i], 'coefs': arr[4:12, i]})
+        conf.update({'profile': 'EvenPolynomial', 'surf': arr[i, :3], 'coefs': arr[i, 3:11]})
         confs.append(conf)
     return confs
