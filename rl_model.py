@@ -232,7 +232,7 @@ class OptPredictor:
         #                              next_observations))
         # len_actions = list(map(len, next_observations))
         full_observation = self.backbone.decode_with_target(observations, actions, next_observations)
-        print(full_observation.shape)
+        # print(full_observation.shape)
         actions = torch.cat(next_observations)
         full_observation = full_observation[:, :-1, :]
         observations = full_observation[:, :-1, :]
@@ -325,6 +325,7 @@ class OptPredictor:
         loss_obs = feature_loss.reshape(1, -1)
         # TRY NOT TO MODIFY: execute the game and log data.
         return_feature_env, return_feature_loss, loss, reward = self.env.step_m1(actions)
+        reward /= 30
         if obs.shape[0] < 14:
             obs = np.concatenate([obs, np.array([[self.padding] * (obs.shape[1])] * (14 - obs.shape[0]))])
         if actions.shape[0] < 14:
