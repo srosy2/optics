@@ -5,35 +5,69 @@ from threading import Thread
 
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
+def calc_n(k):
+    return 1.54 * k + 1.67 * (1-k)
+
+def calc_abbe(k):
+    return 75 * k + 39 * (1-k)
+
 def objective(trial):
-    efl_for_loss = trial.suggest_float('efl_for_loss', 0.1, 10.0)
-    fD_for_loss = trial.suggest_float('fD_for_loss', 0.1, 5.0)
-    total_length_for_loss = trial.suggest_float('total_length_for_loss', 0.1, 10)
-    radius_enclosed_energy_for_loss = trial.suggest_float('radius_enclosed_energy_for_loss', 1, 100)
-    perc_max_enclosed_energy_for_loss = trial.suggest_float('perc_max_enclosed_energy_for_loss', 10, 100)
-    perc_min_enclosed_energy_for_loss = trial.suggest_float('perc_min_enclosed_energy_for_loss', 10, 100)
-    min_thickness_for_loss = trial.suggest_float('min_thickness_for_loss', 0.1, 10)
-    min_thickness_air_for_loss = trial.suggest_float('min_thickness_air_for_loss', 0.1, 10)
-    number_of_field = 5
-    number_of_wavelength = 2
+    
+    radius_of_curvature_11 = trial.suggest_float('radius_of_curvature_11', -100, 100)
+    surface_thickness_11 = trial.suggest_float('surface_thickness_11', 0.1, 1)
+    substance_concentration_1 = trial.suggest_float('substance_concentration_1', 0.0, 1)
+    
+    lense_params_11 = [
+        radius_of_curvature_11, 
+        surface_thickness_11,
+        calc_n(substance_concentration_1),
+        calc_abbe(substance_concentration_1),
+    ]
+    
+    radius_of_curvature_12 = trial.suggest_float('radius_of_curvature_12', -100, 100)
+    surface_thickness_12 = trial.suggest_float('surface_thickness_12', 0.1, 1)
+    
+    lense_params_12 = [
+        radius_of_curvature_12, 
+        surface_thickness_12,
+    ]
+    
+    radius_of_curvature_21 = trial.suggest_float('radius_of_curvature_21', -100, 100)
+    surface_thickness_21 = trial.suggest_float('surface_thickness_21', 0.1, 1)
+    substance_concentration_2 = trial.suggest_float('substance_concentration_2', 0.0, 1)
+    
+    lense_params_21 = [
+        radius_of_curvature_21, 
+        surface_thickness_21,
+        calc_n(substance_concentration_2),
+        calc_abbe(substance_concentration_2),
+    ]
+    
+    radius_of_curvature_22 = trial.suggest_float('radius_of_curvature_22', -100, 100)
+    surface_thickness_22 = trial.suggest_float('surface_thickness_22', 0.1, 1)
+    
+    lense_params_22 = [
+        radius_of_curvature_22, 
+        surface_thickness_22,
+    ]
 
     params = {}
-    params['efl_for_loss'] = efl_for_loss
-    params['fD_for_loss'] = fD_for_loss
-    params['total_length_for_loss'] = total_length_for_loss
-    params['radius_enclosed_energy_for_loss'] = radius_enclosed_energy_for_loss
-    params['perc_max_enclosed_energy_for_loss'] = perc_max_enclosed_energy_for_loss
-    params['perc_min_enclosed_energy_for_loss'] = perc_min_enclosed_energy_for_loss
-    params['min_thickness_for_loss'] = min_thickness_for_loss
-    params['min_thickness_air_for_loss'] = min_thickness_air_for_loss
-    params['number_of_field'] = number_of_field
-    params['number_of_wavelength'] = number_of_wavelength
+    params['lense_params_11'] = lense_params_11
+    params['lense_params_12'] = lense_params_12
+    params['lense_params_21'] = lense_params_21
+    params['lense_params_22'] = lense_params_22
 
+    thickness_sum = 0
+    for i in params.values():
+        thickness_sum += i[1]
+ 
+    if thickness_sum > 7:
+      return float("inf")
+    
     path2model='test.roa'
     loss = my_calc_loss(path2model, params)
-
+    
     return loss
-
 
 
 if __name__ == '__main__':
@@ -44,7 +78,7 @@ if __name__ == '__main__':
         load_if_exists=True,
     )
 
-    study.optimize(objective, n_trials=10)
+    study.optimize(objective, n_trials=100)
 
     trial = study.best_trial
     print('Value: ', trial.value)

@@ -6,33 +6,21 @@ import re
 import io
 from contextlib import redirect_stdout
 
+
 file = 'test_opt.roa'
 
-
 # base_param
-def my_calc_loss(path2model, params: dict=None):
-    if params is None:
-        efl_for_loss = 5  # mm
-        fD_for_loss = 2.1
-        total_length_for_loss = 7.0  # mm
-        radius_enclosed_energy_for_loss = 50  # micron
-        perc_max_enclosed_energy_for_loss = 80  # %
-        perc_min_enclosed_energy_for_loss = 50  # %
-        min_thickness_for_loss = 0.1  # mm
-        min_thickness_air_for_loss = 0.0  # mm
-        number_of_field = 5
-        number_of_wavelength = 2
-    else:
-        efl_for_loss = params['efl_for_loss'] 
-        fD_for_loss = params['fD_for_loss'] 
-        total_length_for_loss = params['total_length_for_loss'] 
-        radius_enclosed_energy_for_loss = params['radius_enclosed_energy_for_loss'] 
-        perc_max_enclosed_energy_for_loss = params['perc_max_enclosed_energy_for_loss'] 
-        perc_min_enclosed_energy_for_loss = params['perc_min_enclosed_energy_for_loss'] 
-        min_thickness_for_loss = params['min_thickness_for_loss'] 
-        min_thickness_air_for_loss = params['min_thickness_air_for_loss'] 
-        number_of_field = params['number_of_field'] 
-        number_of_wavelength = params['number_of_wavelength'] 
+def my_calc_loss(path2model, params):
+    efl_for_loss = 5  # mm
+    fD_for_loss = 2.1
+    total_length_for_loss = 7.0  # mm
+    radius_enclosed_energy_for_loss = 50  # micron
+    perc_max_enclosed_energy_for_loss = 80  # %
+    perc_min_enclosed_energy_for_loss = 50  # %
+    min_thickness_for_loss = 0.1  # mm
+    min_thickness_air_for_loss = 0.0  # mm
+    number_of_field = 5
+    number_of_wavelength = 2
 
     def funct_loss_enclosed_energy(enclosed_energy, perc_max_enclosed_energy_for_loss,
                                    perc_min_enclosed_energy_for_loss):
@@ -92,29 +80,32 @@ def my_calc_loss(path2model, params: dict=None):
 
             sm.gaps[0].thi = 1e10
 
-            sm.add_surface([0.274782, 1., 1.54, 75.])
-            sm.ifcs[sm.cur_surface].profile = EvenPolynomial(c=0.2747823174694503, cc=0.0,
-                                                             coefs=[0.0, 0.009109298409282469, -0.03374649200850791,
-                                                                    0.01797256809388843, -0.0050513483804677005, 0.0,
-                                                                    0.0,
-                                                                    0.0])
-            sm.ifcs[sm.cur_surface].interact_mode = 'transmit'
-            sm.set_stop()
+            sm.add_surface(params['lense_params_11'])
+            sm.ifcs[sm.cur_surface].profile = EvenPolynomial(c=params['lense_params_11'][0])
+                                                            #  , cc=0.0,
+                                                            #  coefs=[0.0, 0.009109298409282469, -0.03374649200850791,
+                                                            #         0.01797256809388843, -0.0050513483804677005, 0.0,
+                                                            #         0.0,
+                                                            #         0.0])
+            # sm.ifcs[sm.cur_surface].interact_mode = 'transmit'
+            # sm.set_stop()
 
-            sm.add_surface([0.135566, .5])
-            sm.ifcs[sm.cur_surface].profile = EvenPolynomial(c=0.13556582944950138, cc=0.0,
-                                                             coefs=[0.0, -0.002874728268075267, -0.03373322938525211,
-                                                                    0.004205227876537139, -0.0001705765222318475,
-                                                                    0.0, 0.0, 0.0])
+            sm.add_surface(params['lense_params_12'])
+            sm.ifcs[sm.cur_surface].profile = EvenPolynomial(params['lense_params_12'][0])
+                                                            #  , cc=0.0,
+                                                            #  coefs=[0.0, -0.002874728268075267, -0.03373322938525211,
+                                                            #         0.004205227876537139, -0.0001705765222318475,
+                                                            #         0.0, 0.0, 0.0])
 
-            sm.add_surface([-0.055210, 1., 1.67, 39.])
-            sm.ifcs[sm.cur_surface].profile = EvenPolynomial(c=-0.055209803982245384, cc=0.0,
-                                                             coefs=[0.0, -0.0231369463217776, 0.011956554928461116,
-                                                                    -0.017782670650182023, 0.004077846642272649, 0.0,
-                                                                    0.0, 0.0])
+            sm.add_surface(params['lense_params_21'])
+            sm.ifcs[sm.cur_surface].profile = EvenPolynomial(c=params['lense_params_22'][0])
+                                                            #  , cc=0.0,
+                                                            #  coefs=[0.0, -0.0231369463217776, 0.011956554928461116,
+                                                            #         -0.017782670650182023, 0.004077846642272649, 0.0,
+                                                            #         0.0, 0.0])
 
-            sm.add_surface([-0.256889, 4.21639])
-            sm.ifcs[sm.cur_surface].profile = Spherical(c=-0.2568888474926888)
+            sm.add_surface(params['lense_params_22'])
+            sm.ifcs[sm.cur_surface].profile = Spherical(c=params['lense_params_22'][0])
             sm.ifcs[-1].profile = EvenPolynomial(c=0.0, cc=0.0, coefs=[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
             opm.update_model()
         sm.list_model()
@@ -221,8 +212,8 @@ def my_calc_loss(path2model, params: dict=None):
     loss = loss_focus + loss_FD + loss_total_length + loss_min_thickness + loss_min_thickness_air + loss_enclosed_energy_all + loss_rms_all
     # print(
     #     f'{loss_focus=}, {loss_FD=},  {loss_total_length=},  {loss_min_thickness=},  {loss_min_thickness_air=},  {loss_enclosed_energy_all=},  {loss_rms_all=}')
-    # # layout_plt0 = plt.figure(FigureClass=InteractiveLayout, opt_model=opm,
-    # #                          do_draw_rays=True, do_paraxial_layout=False,
-    # #                          is_dark=isdark).plot()
+    # layout_plt0 = plt.figure(FigureClass=InteractiveLayout, opt_model=opm,
+    #                          do_draw_rays=True, do_paraxial_layout=False,
+    #                          is_dark=isdark).plot()
     # print(f'final loss:{loss}')
     return (loss)
