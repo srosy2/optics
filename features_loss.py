@@ -55,13 +55,17 @@ def compute_third_order_cast(opt_model):
     fod = parax_data.fod
     first_order_features = np.array([fod.efl, fod.ffl, fod.pp1, fod.bfl, fod.ppk, fod.fno, fod.img_dist, fod.img_ht,
                                      fod.exp_dist, fod.exp_radius, fod.img_na, fod.opt_inv])
-    first_order_features = first_order_features / np.max(first_order_features)
+    first_order_features = first_order_features / np.max(np.abs(first_order_features))
     third_order_df = pd.DataFrame(third_order, index=pd_index)
+    third_order_df = third_order_df / np.max(np.abs(third_order_df))
     third_order_abs = abs(third_order_df).mean(axis='columns').values
     third_order_mean = third_order_df.mean(axis='columns').values
+    ax_ray = np.array(ax_ray)
+    ax_ray = ax_ray / np.max(np.abs(ax_ray))
     ax_ray_abs = np.mean(np.abs(ax_ray), axis=0)
     ax_ray_mean = np.mean(ax_ray, axis=0)
     pr_ray[0][0] /= 3500000000
+    pr_ray /= np.max(np.abs(pr_ray))
     pr_ray_abs = np.mean(np.abs(pr_ray), axis=0)
     pr_ray_mean = np.mean(pr_ray, axis=0)
     # np.concatenate([third_order_sum, third_order_mean, ax_ray_sum, ax_ray_mean, pr_ray_sum, pr_ray_mean])

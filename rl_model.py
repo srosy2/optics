@@ -66,11 +66,11 @@ class Actor(nn.Module):
         self.active_action_lins = np.array([1.] * 11 + [0.])
         # action rescaling
         self.register_buffer(
-            "action_scale", torch.tensor([0.5, 3.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5],
+            "action_scale", torch.tensor([1., 3.5, 0.5, 1., 1., 1., 1., 1., 1., 1., 1., 0.5],
                                          dtype=torch.float32)
         )
         self.register_buffer(
-            "action_bias", torch.tensor([0.5, 3.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5],
+            "action_bias", torch.tensor([0., 3.5, 0.5, 0., 0., 0., 0., 0., 0., 0., 0., 0.5],
                                         dtype=torch.float32)
         )
 
@@ -86,11 +86,11 @@ class Actor(nn.Module):
 
     def get_action(self, x, info=None):
         if info is not None:
-            mask_action = torch.tensor([self.active_action_lins if x['type'] == 'lins' else self.active_action_air
-                                        for x in info])
+            mask_action = torch.tensor(np.array([self.active_action_lins if x['type'] == 'lins' else self.active_action_air
+                                        for x in info]))
         else:
-            mask_action = torch.tensor([self.active_action_air if x % 2 else self.active_action_lins
-                                        for x in range(x.shape[0])]).type(torch.float)
+            mask_action = torch.tensor(np.array([self.active_action_air if x % 2 else self.active_action_lins
+                                        for x in range(x.shape[0])])).type(torch.float)
         mean, log_std = self(x)
         std = log_std.exp()
         normal = torch.distributions.Normal(mean, std)
@@ -107,8 +107,8 @@ class Actor(nn.Module):
 
 class OptPredictor:
     def __init__(self, autotune=True, alpha=0.2, target_network_frequency=1, policy_frequency=2,
-                 q_lr=1e-3, policy_lr=3e-4, backbone_lr=7e-4, learning_starts=1e3, batch_size=64, gamma=0.99, tau=0.005,
-                 buffer_size=1e6, total_timesteps=1000000, cuda=False, torch_deterministic=True):
+                 q_lr=1e-3, policy_lr=3e-4, backbone_lr=7e-4, learning_starts=5e3, batch_size=256, gamma=0.99, tau=0.005,
+                 buffer_size=1000000, total_timesteps=1000000, cuda=False, torch_deterministic=True):
         super().__init__()
         run_name = f"OpticSac__{int(time.time())}"
         self.writer = SummaryWriter(f"runs/{run_name}")
@@ -312,19 +312,19 @@ class OptPredictor:
          key, value in self.metric_track.items()]
 
     def get_data(self, feature_env, feature_loss):
-        if self.t < self.learning_starts or self.plato > 10:
+        if self.t < self.learning_starts or self.plato > 6:
             actions = self.env.sample()
             # full_obs = self.backbone.decode_with_target(feature_env, feature_loss, torch.tensor(actions))
             # full_obs = full_obs[:, :-1, :]
         else:
-            actions, full_obs = self.backbone.decode_without_target(feature_env, feature_loss)
+            actions, full_obs = self.backbone.decode_without_target(feature_env, feature_loss, lins=1 + self.t//100000)
             actions = actions.squeeze().detach().cpu().numpy()
         # obs = full_obs[:, :-1, :].squeeze()
         # next_obs = full_obs[:, 1:, :].squeeze()
         obs = feature_env.detach().numpy()
         loss_obs = feature_loss.reshape(1, -1)
         # TRY NOT TO MODIFY: execute the game and log data.
-        return_feature_env, return_feature_loss, loss, reward = self.env.step_m1(actions)
+        return_feature_env, return_feature_loss, loss, reward, save_reward = self.env.step_m1(actions)
         reward /= 30
         if obs.shape[0] < 14:
             obs = np.concatenate([obs, np.array([[self.padding] * (obs.shape[1])] * (14 - obs.shape[0]))])
@@ -334,10 +334,11 @@ class OptPredictor:
 
         if loss is None:
             return_feature_env, return_feature_loss, loss = feature_env, feature_loss, float('inf')
+            self.plato += 1
         elif loss < self.best_loss:
             self.plato = 0
             self.best_loss = loss
-        elif self.plato > 10 or self.t < self.learning_starts:
+        elif self.plato > 6 or self.t < self.learning_starts:
             self.plato = 0
             self.best_loss = loss
         else:
@@ -354,7 +355,7 @@ class OptPredictor:
         self.rb.add(obs, actions, loss_obs, reward, np.array([True]), [{}])
 
         # TRY NOT TO MODIFY: CRUCIAL step easy to overlook
-        return torch.tensor(return_feature_env), torch.tensor(return_feature_loss), loss
+        return torch.tensor(return_feature_env), torch.tensor(return_feature_loss), loss, save_reward
 
     def start(self, load_model=False, load_rb=False):
         if load_rb:
@@ -364,18 +365,33 @@ class OptPredictor:
             policy_file = Path(os.path.join('model', f"checkpoint_{self.t}.pt"))
             self.load_state_dict(torch.load(policy_file))
 
-        feature_env, feature_loss, self.best_loss = self.env.reset()
+        feature_env, feature_loss, self.best_loss, best_save_reward = self.env.reset()
         save_loss = self.best_loss
+        best_feature_loss_env, best_feature_reward_env = None, None
         for _ in tqdm(range(self.total_timesteps)):
             self.t += 1
-            feature_env, feature_loss, loss = self.get_data(feature_env, feature_loss)
+            feature_env, feature_loss, loss, save_reward = self.get_data(feature_env, feature_loss)
             if loss < save_loss:
-                with open('best_5.txt', 'a') as file:
-                    file.write(f'{loss=}, best_param={feature_env} \n')
                 save_loss = loss
+                best_feature_loss_env = feature_env.detach().cpu().numpy().tolist()
+            if save_reward > best_save_reward:
+                best_save_reward = save_reward
+                best_feature_reward_env = feature_env.detach().cpu().numpy().tolist()
 
             if self.t % 100 == 0:
-                save_to_pkl('sac_replay_buffer', self.rb, 0)
+                with open('best_5.txt', 'a') as file:
+                    file.write(f'{save_loss=}, best_param={best_feature_loss_env} \n')
+                save_loss = float('inf')
+                best_feature_loss_env = None
+
+                with open('best_reward_5.txt', 'a') as file:
+                    file.write(f'{best_save_reward=}, best_param={best_feature_reward_env} \n')
+                best_save_reward = float('-inf')
+                best_feature_reward_env = None
+
+
+            if self.t % 100 == 0:
+                save_to_pkl('sac_replay_buffer_2', self.rb, 0)
 
             if self.t > self.learning_starts:
                 self.train(self.rb.sample(self.batch_size))
@@ -384,6 +400,6 @@ class OptPredictor:
                 if self.t % 100 == 0:
                     torch.save(
                         self.state_dict(),
-                        os.path.join('model', f"checkpoint_{self.t}.pt"),
+                        os.path.join('model', f"checkpoint_{self.t}_2.pt"),
                     )
         self.writer.close()

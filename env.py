@@ -11,28 +11,8 @@ import torch
 from torch import Tensor
 from features_loss import compute_third_order_cast
 from search_param import empty_start_random
-
-
-class PositionalEncoding(nn.Module):
-
-    def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 5000):
-        super().__init__()
-        self.dropout = nn.Dropout(p=dropout)
-
-        position = torch.arange(max_len).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model))
-        pe = torch.zeros(max_len, d_model)
-        pe[:, 0::2] = torch.sin(position * div_term)
-        pe[:, 1::2] = torch.cos(position * div_term)
-        self.register_buffer('pe', pe)
-
-    def forward(self, x: Tensor) -> Tensor:
-        """
-        Arguments:
-            x: Tensor, shape ``[seq_len, embedding_dim]``
-        """
-        x = x + self.pe[:x.size(0)]
-        return self.dropout(x)
+import ray
+from ray.util.multiprocessing import Pool
 
 
 class OpticEnv:
@@ -50,15 +30,17 @@ class OpticEnv:
         self.num_envs = 1
         self.optic = None
         self.emb = nn.Embedding(2, 12)
-        self.pos_emb = PositionalEncoding(12, max_len=140)
         self.step_pass_m1 = 0
         self.step_pass_m2 = 0
         self.finish_m1 = 15
         self.finish_m2 = 5
         self.loss = None
-        self.old_bound_reward = -25
+        self.old_bound_reward = -30
         self.old_rms_reward = 0
-        self.error_reward = -30
+        self.error_reward = -5
+        ray.init(num_cpus=12, _temp_dir="/tmp",
+                 include_dashboard=False, ignore_reinit_error=True)
+        self.pool = Pool(10)
 
     def reset(self, model=1, quantity=2):
         self.step_pass_m1 = 0
@@ -67,18 +49,18 @@ class OpticEnv:
         if model == 1:
             conf = self.reset_conf_1()
             self.create_surf_from_conf_m1(conf)
-            loss, feature_loss, reward = self.calc_loss_from_model()
+            loss, feature_loss, reward, save_reward = self.calc_loss_from_model()
             feature_env = self.prepare_m1_feature_from_conf(conf)
             self.loss = loss
-            return feature_env, feature_loss, loss
+            return feature_env, feature_loss, loss, save_reward
 
         elif model == 2:
             conf = self.reset_conf_2(quantity)
             self.create_surf_from_conf_m2(conf)
-            loss, feature_loss, reward = self.calc_loss_from_model()
+            loss, feature_loss, reward, save_reward = self.calc_loss_from_model()
             self.loss = loss
             feature_env = self.prepare_m2_feature_from_conf(conf)
-            return feature_env, feature_loss, loss
+            return feature_env, feature_loss, loss, save_reward
 
         else:
             raise
@@ -86,11 +68,25 @@ class OpticEnv:
     def reward(self, upp_low_bounds, loss_rms_all, return_reward):
         reward = None
         bounds_reward = - sum([bound > 0 for bound in upp_low_bounds]) * 5
-        rms_reward = 1 / ((loss_rms_all / 100) ** 2 + 1 / 15)
+        if loss_rms_all <= 10:
+            rms_reward = 1 / ((loss_rms_all / 60) ** 2 + 1 / 45)
+        elif 100 >= loss_rms_all >= 10:
+            rms_reward = - ((loss_rms_all - 10) * (19 / 90) - 20)
+        else:
+            rms_reward = 1 / loss_rms_all
+
         if return_reward:
             reward = 0
             reward += bounds_reward - self.old_bound_reward
-            reward += rms_reward - self.old_rms_reward
+            if rms_reward < 1 and self.old_rms_reward < 1:
+                reward += 1 if rms_reward > self.old_rms_reward else -1
+            elif rms_reward >= 1 and self.old_rms_reward < 1:
+                reward += rms_reward + 1
+            elif rms_reward < 1 and self.old_rms_reward >= 1:
+                reward -= self.old_rms_reward + 1
+            else:
+                reward += rms_reward - self.old_rms_reward
+            # reward += rms_reward - self.old_rms_reward
         self.old_bound_reward = bounds_reward
         self.old_rms_reward = rms_reward
         return reward
@@ -162,7 +158,7 @@ class OpticEnv:
             elif conf_surf['type'] == 'air':
                 all_features.append(features + self.emb[1])
 
-        return self.pos_emb(torch.cat(all_features))
+        return torch.cat(all_features)
 
     def create_surf_from_conf_m1(self, conf: list):
         sm = self.optic['seq_model']
@@ -190,13 +186,13 @@ class OpticEnv:
         try:
             self.create_surf_from_conf_m1(conf)
         except:
-            return None, None, None, self.error_reward
+            return None, None, None, self.error_reward, float('-inf')
         try:
-            loss, loss_feature, reward = self.calc_loss_from_model(return_reward=True)
+            loss, loss_feature, reward, save_reward = self.calc_loss_from_model(return_reward=True)
         except:
-            return None, None, None, self.error_reward
+            return None, None, None, self.error_reward, float('-inf')
         feature_env, feature_loss = actions, loss_feature
-        return feature_env, feature_loss, loss, reward
+        return feature_env, feature_loss, loss, reward, save_reward
 
     def step_m2(self, conf):
         self.step_pass_m2 += 1
@@ -258,7 +254,6 @@ class OpticEnv:
         pt = opm['part_tree']
         ar = opm['analysis_results']
 
-
         # plt.figure(FigureClass=InteractiveLayout, opt_model=opm, is_dark=isdark).plot()
 
         efl = pm.opt_model['analysis_results']['parax_data'].fod.efl
@@ -274,15 +269,15 @@ class OpticEnv:
         distortion = tr_df.to_numpy()[-1, 5]
 
         field = 0
-        psf = SpotDiagramFigure(opm)
+        psf = SpotDiagramFigure(opm, self.pool)
         test_psf = psf.axis_data_array[field][0][0][0]
+        test_psf = np.array(test_psf)
         test_psf[:, 1] = test_psf[:, 1] - np.mean(test_psf[:, 1])
 
         fld, wvl, foc = osp.lookup_fld_wvl_focus(0)
         sm.list_model()
         sm.list_surfaces()
         efl = pm.opt_model['analysis_results']['parax_data'].fod.efl
-
 
         pm.first_order_data()
         features = compute_third_order_cast(opm)
@@ -326,6 +321,7 @@ class OpticEnv:
         for idx_field in range(number_of_field):
             for idx_wavelength in range(number_of_wavelength):
                 test_psf = psf.axis_data_array[idx_field][0][0][idx_wavelength]
+                test_psf = np.array(test_psf)
                 test_psf[:, 1] = test_psf[:, 1] - np.mean(test_psf[:, 1])
                 r_psf = np.sort(np.sqrt(test_psf[:, 0] ** 2 + test_psf[:, 1] ** 2))
                 enclosed_energy = 100 * np.sum(r_psf <= radius_enclosed_energy_for_loss / 1e3) / len(test_psf[:, 0])
@@ -341,9 +337,10 @@ class OpticEnv:
         loss_rms_all = loss_rms_all / temp
         loss = loss_focus + loss_FD + loss_total_length + loss_min_thickness + loss_min_thickness_air + \
                loss_enclosed_energy_all + loss_rms_all
-
+        if loss != loss:
+            raise Exception
         reward = self.reward(
             [loss_focus, loss_FD, loss_total_length, loss_min_thickness, loss_min_thickness_air,
              loss_enclosed_energy_all], loss_rms_all, return_reward)
-
-        return loss, features, reward
+        save_reward = self.old_rms_reward + self.old_bound_reward
+        return loss, features, reward, save_reward

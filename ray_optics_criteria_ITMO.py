@@ -1,3 +1,5 @@
+import numpy as np
+
 isdark = False
 from rayoptics.environment import *
 from matplotlib.colors import LogNorm, PowerNorm, Normalize
@@ -6,12 +8,19 @@ import re
 import io
 from contextlib import redirect_stdout
 from optic_model import test_opt_model
+import time
+import multiprocessing
+import ray
 
 file = 'test_opt.roa'
 
 
+
 # base_param
 def calc_loss(path2model=None, *args, **kwargs):
+    ray.init(num_cpus=12, _temp_dir="/tmp",
+             include_dashboard=False, ignore_reinit_error=True)
+
     efl_for_loss = 5  # mm
     fD_for_loss = 2.1
     total_length_for_loss = 7.0  # mm
@@ -55,7 +64,9 @@ def calc_loss(path2model=None, *args, **kwargs):
         return thickness_list, thickness_material_list, thickness_air_list, number_of_surfaces
 
     # opm = open_model(f'{path2model}', info=True)
+
     opm = test_opt_model(load=False, file=file, *args, **kwargs)
+
     sm = opm['seq_model']
     osp = opm['optical_spec']
     pm = opm['parax_model']
@@ -78,18 +89,26 @@ def calc_loss(path2model=None, *args, **kwargs):
     tr_df = to_df.apply(to.seidel_to_transverse_aberration, axis='columns', args=(n_last, u_last))
     distortion = tr_df.to_numpy()[-1, 5]
 
+    # multiprocessing.Pool().map(lambda x: 1, range(10))
+    start = time.time()
     field = 0
     psf = SpotDiagramFigure(opm)
+    # psf.update_data()
+    print('--------------------------------------')
+    print(f'update model {time.time() - start}')
     test_psf = psf.axis_data_array[field][0][0][0]
+    test_psf = np.array(test_psf)
     test_psf[:, 1] = test_psf[:, 1] - np.mean(test_psf[:, 1])
     # plt.plot(test_psf[:, 0], test_psf[:, 1], 'o')
     # plt.rcParams['figure.figsize'] = (8, 8)
     # plt.show()
 
+
     fld, wvl, foc = osp.lookup_fld_wvl_focus(0)
     sm.list_model()
     sm.list_surfaces()
     efl = pm.opt_model['analysis_results']['parax_data'].fod.efl
+
 
     pm.first_order_data()
     opm.update_model()
@@ -132,6 +151,7 @@ def calc_loss(path2model=None, *args, **kwargs):
     for idx_field in range(number_of_field):
         for idx_wavelength in range(number_of_wavelength):
             test_psf = psf.axis_data_array[idx_field][0][0][idx_wavelength]
+            test_psf = np.array(test_psf)
             test_psf[:, 1] = test_psf[:, 1] - np.mean(test_psf[:, 1])
             r_psf = np.sort(np.sqrt(test_psf[:, 0] ** 2 + test_psf[:, 1] ** 2))
             enclosed_energy = 100 * np.sum(r_psf <= radius_enclosed_energy_for_loss / 1e3) / len(test_psf[:, 0])
