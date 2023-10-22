@@ -13,7 +13,7 @@ def calc_abbe(k):
 
 def objective(trial):
     
-    radius_of_curvature_11 = trial.suggest_float('radius_of_curvature_11', -100, 100)
+    radius_of_curvature_11 = trial.suggest_float('radius_of_curvature_11', -10, 10)
     surface_thickness_11 = trial.suggest_float('surface_thickness_11', 0.1, 1)
     substance_concentration_1 = trial.suggest_float('substance_concentration_1', 0.0, 1)
     
@@ -24,7 +24,7 @@ def objective(trial):
         calc_abbe(substance_concentration_1),
     ]
     
-    radius_of_curvature_12 = trial.suggest_float('radius_of_curvature_12', -100, 100)
+    radius_of_curvature_12 = trial.suggest_float('radius_of_curvature_12', -10, 10)
     surface_thickness_12 = trial.suggest_float('surface_thickness_12', 0.1, 1)
     
     lense_params_12 = [
@@ -32,7 +32,7 @@ def objective(trial):
         surface_thickness_12,
     ]
     
-    radius_of_curvature_21 = trial.suggest_float('radius_of_curvature_21', -100, 100)
+    radius_of_curvature_21 = trial.suggest_float('radius_of_curvature_21', -10, 10)
     surface_thickness_21 = trial.suggest_float('surface_thickness_21', 0.1, 1)
     substance_concentration_2 = trial.suggest_float('substance_concentration_2', 0.0, 1)
     
@@ -43,7 +43,7 @@ def objective(trial):
         calc_abbe(substance_concentration_2),
     ]
     
-    radius_of_curvature_22 = trial.suggest_float('radius_of_curvature_22', -100, 100)
+    radius_of_curvature_22 = trial.suggest_float('radius_of_curvature_22', -10, 10)
     surface_thickness_22 = trial.suggest_float('surface_thickness_22', 0.1, 1)
     
     lense_params_22 = [
@@ -65,8 +65,11 @@ def objective(trial):
       return float("inf")
     
     path2model='test.roa'
-    loss = my_calc_loss(path2model, params)
     
+    try:
+        loss = my_calc_loss(path2model, params)
+    except:
+        return float("inf")
     return loss
 
 
@@ -78,7 +81,7 @@ if __name__ == '__main__':
         load_if_exists=True,
     )
 
-    study.optimize(objective, n_trials=100)
+    study.optimize(objective, n_trials=20000)
 
     trial = study.best_trial
     print('Value: ', trial.value)

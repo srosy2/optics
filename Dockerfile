@@ -21,4 +21,5 @@ CMD ["postgres"]
 
 # Build and run this Dockerfile as follows:
 # docker build -t my-postgres-container .
+# 
 # docker run -d --name postgres-container -p 5432:5432 -v postgres-data:/var/lib/postgresql/data my-postgres-container
