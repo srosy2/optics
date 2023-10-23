@@ -204,7 +204,6 @@ class OptPredictor:
         ) = batch
         self.metric_track = dict()
         self.metric_track.update({'reward': torch.mean(rewards).item()})
-        self.t += 1
         # print(type(observations[0][-1][-1]))
         len_observations = list()
         for obs in observations:
@@ -359,10 +358,10 @@ class OptPredictor:
 
     def start(self, load_model=False, load_rb=False):
         if load_rb:
-            self.rb = load_from_pkl('sac_replay_buffer', 0)
+            self.rb = load_from_pkl('sac_replay_buffer_2.pkl', 0)
 
         if load_model:
-            policy_file = Path(os.path.join('model', f"checkpoint_{self.t}.pt"))
+            policy_file = Path(os.path.join('model', f"checkpoint_{97300}_2.pt"))
             self.load_state_dict(torch.load(policy_file))
 
         feature_env, feature_loss, self.best_loss, best_save_reward = self.env.reset()
