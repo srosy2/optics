@@ -159,11 +159,14 @@ class OpticEnv:
             make_optic_surface_m2(self.optic['seq_model'], conf_surf)
         self.optic.update_model()
 
-    def sample(self):
+    def sample(self, lins=None):
         probability = np.array([0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5])
         probability = probability / np.sum(probability)
         quantity = np.random.choice(list(range(1, 8)), 1, p=probability)
-        return empty_start_random(quantity[0]), quantity
+        if lins is None:
+            return empty_start_random(quantity[0]), quantity[0]
+        else:
+            return empty_start_random(lins), lins
 
     def step_m1(self, actions, lins):
         self.step_pass_m1 += 1

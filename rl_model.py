@@ -5,6 +5,7 @@ import random
 import time
 from distutils.util import strtobool
 from tqdm import tqdm
+import math
 
 import gym
 from gymnasium.spaces import Space
@@ -36,7 +37,7 @@ def make_env(env_id, seed, idx, capture_video, run_name):
 
 # ALGO LOGIC: initialize agent here:
 class SoftQNetwork(nn.Module):
-    def __init__(self, action_space=11, obs_space=34 + 44):
+    def __init__(self, action_space=12, obs_space=34 + 48):
         super().__init__()
         self.fc1 = nn.Linear(
             action_space + obs_space, 256)
@@ -56,21 +57,21 @@ LOG_STD_MIN = -5
 
 
 class Actor(nn.Module):
-    def __init__(self, action_space=11, obs_space=34 + 44):
+    def __init__(self, action_space=12, obs_space=34 + 48):
         super().__init__()
         self.fc1 = nn.Linear(obs_space, 256)
         self.fc2 = nn.Linear(256, 256)
         self.fc_mean = nn.Linear(256, action_space)
         self.fc_logstd = nn.Linear(256, action_space)
-        self.active_action_air = np.array([1., 1., 0., 1., 1., 1., 1., 1., 1., 1., 1.])
-        self.active_action_lins = np.array([1.] * 11)
+        self.active_action_air = np.array([1., 1., 0., 1., 1., 1., 1., 1., 1., 1., 1., 0.])
+        self.active_action_lins = np.array([1.] * 11 + [0.])
         # action rescaling
         self.register_buffer(
-            "action_scale", torch.tensor([0.1, .5, 0.1, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02],
+            "action_scale", torch.tensor([0.1, .5, 0.1, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.],
                                          dtype=torch.float32)
         )
         self.register_buffer(
-            "action_bias", torch.tensor([0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.],
+            "action_bias", torch.tensor([0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.],
                                         dtype=torch.float32)
         )
 
@@ -107,8 +108,8 @@ class Actor(nn.Module):
 
 class OptPredictor:
     def __init__(self, autotune=True, alpha=0.2, target_network_frequency=1, policy_frequency=2,
-                 q_lr=1e-3, policy_lr=3e-4, backbone_lr=7e-4, learning_starts=5e3, batch_size=256, gamma=0.99, tau=0.005,
-                 buffer_size=1000000, total_timesteps=1000000, cuda=False, torch_deterministic=True):
+                 q_lr=1e-3, policy_lr=3e-4, backbone_lr=7e-4, learning_starts=1e2, batch_size=256, gamma=0.99, tau=0.005,
+                 buffer_size=10000, total_timesteps=1000000, cuda=False, torch_deterministic=True):
         super().__init__()
         run_name = f"OpticSac__{int(time.time())}"
         self.writer = SummaryWriter(f"runs/{run_name}")
@@ -150,7 +151,7 @@ class OptPredictor:
             self.a_optimizer = optim.Adam([self.log_alpha], lr=q_lr)
         else:
             self.alpha = alpha
-        self.rb = ReplayBuffer(int(buffer_size), spaces.Box(low=0, high=1, shape=[14, 11]),
+        self.rb = ReplayBuffer(int(buffer_size), spaces.Box(low=0, high=1, shape=[14, 12]),
                                spaces.Box(low=0, high=1, shape=[1, 34]),
                                self.device, handle_timeout_termination=True)
 
@@ -313,7 +314,11 @@ class OptPredictor:
     def get_data(self, feature_env, feature_loss, lins):
         new_lins = lins
         if self.t < self.learning_starts or self.plato > 6:
-            actions, new_lins = self.env.sample()
+            if self.t < self.learning_starts:
+                quantity = (self.t // (math.ceil(self.learning_starts / 7) + 1)) + 1
+                actions, new_lins = self.env.sample(lins=quantity)
+            else:
+                actions, new_lins = self.env.sample()
             # full_obs = self.backbone.decode_with_target(feature_env, feature_loss, torch.tensor(actions))
             # full_obs = full_obs[:, :-1, :]
         else:
@@ -324,6 +329,7 @@ class OptPredictor:
         obs = feature_env.detach().numpy()
         loss_obs = feature_loss.reshape(1, -1)
         # TRY NOT TO MODIFY: execute the game and log data.
+        obs_shape, act_shape = obs.shape[0], actions.shape[0]
         return_feature_env, return_feature_loss, loss, reward = self.env.step_m1(actions, new_lins)
         if obs.shape[0] < 14:
             obs = np.concatenate([obs, np.array([[self.padding] * (obs.shape[1])] * (14 - obs.shape[0]))])
@@ -351,7 +357,8 @@ class OptPredictor:
         # TRY NOT TO MODIFY: save data to reply buffer; handle `terminal_observation`
         # print(obs.shape)
         # print(actions.shape)
-        self.rb.add(obs, actions, loss_obs, reward, np.array([True]), [{}])
+        if obs_shape == act_shape:
+            self.rb.add(obs, actions, loss_obs, reward, np.array([True]), [{}])
 
         # TRY NOT TO MODIFY: CRUCIAL step easy to overlook
         return torch.tensor(return_feature_env), torch.tensor(return_feature_loss), loss, new_lins

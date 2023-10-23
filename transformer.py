@@ -35,7 +35,7 @@ class PositionalEncoding(nn.Module):
 class TokenEmbedding(nn.Module):
     def __init__(self, vocab_size: int, emb_size):
         super(TokenEmbedding, self).__init__()
-        self.fc = nn.Linear(11, emb_size)
+        self.fc = nn.Linear(12, emb_size)
         self.embedding = nn.Embedding(vocab_size, emb_size)
         self.emb_size = emb_size
         self.transform = sequential_transforms([tensor_transform, collate_fn])
@@ -120,6 +120,15 @@ class Seq2SeqTransformer(nn.Module):
             tgt_emb), memory,
             tgt_mask)
 
+    @staticmethod
+    def prepare_out(tgt):
+        tgt[:, 0] = torch.clip(tgt[:, 0], torch.tensor(-1.), torch.tensor(1.))
+        tgt[:, 1] = torch.clip(tgt[:, 1], torch.tensor(0.), torch.tensor(7.))
+        tgt[:, 2] = torch.clip(tgt[:, 2], torch.tensor(0.), torch.tensor(1.))
+        tgt[:, 3:11] = torch.clip(tgt[:, 3:11], torch.tensor(-1.), torch.tensor(1.))
+        tgt[:, 11] = torch.clip(tgt[:, 11], torch.tensor(0.), torch.tensor(0.))
+        return tgt
+
     def greedy_decode(self, src, lfr=None):
         memory = self.encode(src)
         ys = torch.tensor([[]])
@@ -129,13 +138,13 @@ class Seq2SeqTransformer(nn.Module):
             out = self.decode(tgt, memory)
             pred, _, _ = self.generator.get_action(torch.cat([out[:, -1, :], lfr.view(1, -1)], dim=1).type(torch.float),
                                                    [[{'type': 'lins'}, {'type': 'air'}][i % 2]])
-            tgt_pred = src[1, i, :] + pred.view(1, 11)
+            tgt_pred = self.prepare_out(src[0, i, :] - pred.view(1, 12))
             if i == 0:
-                tgt = tgt_pred.view(1, 1, 11)
-                ys = pred.view(1, 1, 11)
+                tgt = tgt_pred.view(1, 1, 12)
+                ys = pred.view(1, 1, 12)
             else:
-                tgt = torch.cat([tgt, tgt_pred.view(1, 1, 11)], dim=1)
-                ys = torch.cat([ys, pred.view(1, 1, 11)], dim=1)
+                tgt = torch.cat([tgt, tgt_pred.view(1, 1, 12)], dim=1)
+                ys = torch.cat([ys, pred.view(1, 1, 12)], dim=1)
         return ys
 
     # actual function to translate input sentence into target language
@@ -154,7 +163,7 @@ class Seq2SeqTransformer(nn.Module):
             src = src.to(self.device)
             tgt = tgt.to(self.device)
 
-        tgt = [src[i] - tgt[i] for i in range(len(src))]
+        tgt = [self.prepare_out(src[i] - tgt[i]) for i in range(len(src))]
 
         # print(f'src {src}')
         # print('---------------------------------------')
