@@ -35,12 +35,11 @@ class OpticEnv:
         self.finish_m1 = 15
         self.finish_m2 = 5
         self.loss = None
-        self.old_bound_reward = -30
-        self.old_rms_reward = 0
-        self.error_reward = -5
-        ray.init(num_cpus=12, _temp_dir="/tmp",
+        self.old_loss = dict()
+        self.error_reward = -1
+        ray.init(num_cpus=6, _temp_dir="/tmp",
                  include_dashboard=False, ignore_reinit_error=True)
-        self.pool = Pool(10)
+        self.pool = Pool(6)
 
     def reset(self, model=1, quantity=2):
         self.step_pass_m1 = 0
@@ -49,46 +48,33 @@ class OpticEnv:
         if model == 1:
             conf = self.reset_conf_1()
             self.create_surf_from_conf_m1(conf)
-            loss, feature_loss, reward, save_reward = self.calc_loss_from_model()
+            loss, feature_loss, reward = self.calc_loss_from_model(lins=2)
             feature_env = self.prepare_m1_feature_from_conf(conf)
             self.loss = loss
-            return feature_env, feature_loss, loss, save_reward
+            return feature_env, feature_loss, loss
 
         elif model == 2:
             conf = self.reset_conf_2(quantity)
             self.create_surf_from_conf_m2(conf)
-            loss, feature_loss, reward, save_reward = self.calc_loss_from_model()
+            loss, feature_loss, reward = self.calc_loss_from_model(lins=2)
             self.loss = loss
             feature_env = self.prepare_m2_feature_from_conf(conf)
-            return feature_env, feature_loss, loss, save_reward
+            return feature_env, feature_loss, loss
 
         else:
             raise
 
-    def reward(self, upp_low_bounds, loss_rms_all, return_reward):
+    def reward(self, loss, lins, return_reward):
         reward = None
-        bounds_reward = - sum([bound > 0 for bound in upp_low_bounds]) * 5
-        if loss_rms_all <= 10:
-            rms_reward = 1 / ((loss_rms_all / 60) ** 2 + 1 / 45)
-        elif 100 >= loss_rms_all >= 10:
-            rms_reward = - ((loss_rms_all - 10) * (19 / 90) - 20)
-        else:
-            rms_reward = 1 / loss_rms_all
-
+        old_loss = self.old_loss.get(f'lins_{lins}', None)
+        self.old_loss[f'lins_{lins}'] = old_loss
         if return_reward:
-            reward = 0
-            reward += bounds_reward - self.old_bound_reward
-            if rms_reward < 1 and self.old_rms_reward < 1:
-                reward += 1 if rms_reward > self.old_rms_reward else -1
-            elif rms_reward >= 1 and self.old_rms_reward < 1:
-                reward += rms_reward + 1
-            elif rms_reward < 1 and self.old_rms_reward >= 1:
-                reward -= self.old_rms_reward + 1
+            if old_loss is None:
+                return 0
+            elif loss > old_loss:
+                return 1
             else:
-                reward += rms_reward - self.old_rms_reward
-            # reward += rms_reward - self.old_rms_reward
-        self.old_bound_reward = bounds_reward
-        self.old_rms_reward = rms_reward
+                return -1
         return reward
 
     def set_env_opm(self):
@@ -174,25 +160,25 @@ class OpticEnv:
         self.optic.update_model()
 
     def sample(self):
-        probability = np.array([0.5, 0.5, 0.3, 0.2, 0.15, 0.1, 0.05])
+        probability = np.array([0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5])
         probability = probability / np.sum(probability)
         quantity = np.random.choice(list(range(1, 8)), 1, p=probability)
         return empty_start_random(quantity[0])
 
-    def step_m1(self, actions):
+    def step_m1(self, actions, lins):
         self.step_pass_m1 += 1
         conf = prepare_conf_from_arr(actions)
         self.optic = self.set_env_opm()
         try:
             self.create_surf_from_conf_m1(conf)
         except:
-            return None, None, None, self.error_reward, float('-inf')
+            return None, None, None, self.error_reward
         try:
-            loss, loss_feature, reward, save_reward = self.calc_loss_from_model(return_reward=True)
+            loss, loss_feature, reward = self.calc_loss_from_model(return_reward=True, lins=lins)
         except:
-            return None, None, None, self.error_reward, float('-inf')
+            return None, None, None, self.error_reward
         feature_env, feature_loss = actions, loss_feature
-        return feature_env, feature_loss, loss, reward, save_reward
+        return feature_env, feature_loss, loss, reward
 
     def step_m2(self, conf):
         self.step_pass_m2 += 1
@@ -202,7 +188,7 @@ class OpticEnv:
         feature_env = torch.cat([self.prepare_m2_feature_from_conf(conf), loss_feature])
         return feature_env, loss, self.step_pass_m2 == self.finish_m2
 
-    def calc_loss_from_model(self, return_reward=True):
+    def calc_loss_from_model(self, lins, return_reward=False):
         efl_for_loss = 5  # mm
         fD_for_loss = 2.1
         total_length_for_loss = 7.0  # mm
@@ -340,7 +326,5 @@ class OpticEnv:
         if loss != loss:
             raise Exception
         reward = self.reward(
-            [loss_focus, loss_FD, loss_total_length, loss_min_thickness, loss_min_thickness_air,
-             loss_enclosed_energy_all], loss_rms_all, return_reward)
-        save_reward = self.old_rms_reward + self.old_bound_reward
-        return loss, features, reward, save_reward
+            loss, lins, return_reward)
+        return loss, features, reward

@@ -35,7 +35,7 @@ class PositionalEncoding(nn.Module):
 class TokenEmbedding(nn.Module):
     def __init__(self, vocab_size: int, emb_size):
         super(TokenEmbedding, self).__init__()
-        self.fc = nn.Linear(12, emb_size)
+        self.fc = nn.Linear(11, emb_size)
         self.embedding = nn.Embedding(vocab_size, emb_size)
         self.emb_size = emb_size
         self.transform = sequential_transforms([tensor_transform, collate_fn])
@@ -120,42 +120,31 @@ class Seq2SeqTransformer(nn.Module):
             tgt_emb), memory,
             tgt_mask)
 
-    def greedy_decode(self, src, max_len, lfr=None, lins=1):
-        max_prob = torch.tensor(1.)
-        if 1 < lins < 8:
-            max_prob = probability_lins(lins - 1)
+    def greedy_decode(self, src, lfr=None):
         memory = self.encode(src)
         ys = torch.tensor([[]])
+        tgt = torch.tensor([[]])
         memory = memory.to(self.device)
-        for num, i in enumerate(range(max_len - 1)):
-            out = self.decode(ys, memory)
+        for i in range(src.shape[1]):
+            out = self.decode(tgt, memory)
             pred, _, _ = self.generator.get_action(torch.cat([out[:, -1, :], lfr.view(1, -1)], dim=1).type(torch.float),
                                                    [[{'type': 'lins'}, {'type': 'air'}][i % 2]])
+            tgt_pred = src[1, i, :] + pred.view(1, 11)
             if i == 0:
-                ys = pred.view(1, 1, 12)
+                tgt = tgt_pred.view(1, 1, 11)
+                ys = pred.view(1, 1, 11)
             else:
-                ys = torch.cat([ys, pred.view(1, 1, 12)], dim=1)
-
-            if i % 2 == 1:
-
-                if (num + 1) // 2 < lins:
-                    pred[0, -1] = torch.clip(pred[0, -1], torch.tensor(0.), max_prob)
-                else:
-                    pred[0, -1] = torch.clip(pred[0, -1], torch.tensor(0.), torch.tensor(1.))
-
-                if torch.bernoulli(pred[0, -1]):
-                    break
-        out = self.decode(ys, memory)
-        return ys, out
+                tgt = torch.cat([tgt, tgt_pred.view(1, 1, 11)], dim=1)
+                ys = torch.cat([ys, pred.view(1, 1, 11)], dim=1)
+        return ys
 
     # actual function to translate input sentence into target language
-    def decode_without_target(self, src_sentence: torch.Tensor, lfr=None, lins=1):
+    def decode_without_target(self, src_sentence: torch.Tensor, lfr=None):
         src = src_sentence.view(1, *src_sentence.shape)
 
-        tgt_pred, tgt_obs = self.greedy_decode(
-            src, max_len=15, lfr=lfr, lins=lins)
-        tgt_obs = torch.cat([tgt_obs, torch.cat([lfr] * tgt_obs.shape[1]).view(1, tgt_obs.shape[1], -1)], dim=2)
-        return tgt_pred, tgt_obs
+        tgt_pred = self.greedy_decode(
+            src, lfr=lfr)
+        return tgt_pred
 
     def decode_with_target(self, src, lfr, tgt):
         if type(src) == list:
@@ -164,6 +153,8 @@ class Seq2SeqTransformer(nn.Module):
         else:
             src = src.to(self.device)
             tgt = tgt.to(self.device)
+
+        tgt = [src[i] - tgt[i] for i in range(len(src))]
 
         # print(f'src {src}')
         # print('---------------------------------------')
@@ -223,16 +214,6 @@ def tensor_transform(token_ids: List[int]):
                       torch.tensor(token_ids),
                       torch.tensor([EOS_IDX])
                       ))
-
-
-def probability_lins(lins):
-    if lins == 5:
-        p = 2.5 ** (1 / lins)
-    elif lins == 6:
-        p = 3.3 ** (1 / lins)
-    else:
-        p = 2 ** (1 / lins)
-    return torch.tensor(1 - (1 / p))
 
 
 if __name__ == '__main__':

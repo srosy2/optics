@@ -36,7 +36,7 @@ def make_env(env_id, seed, idx, capture_video, run_name):
 
 # ALGO LOGIC: initialize agent here:
 class SoftQNetwork(nn.Module):
-    def __init__(self, action_space=12, obs_space=34 + 48):
+    def __init__(self, action_space=11, obs_space=34 + 44):
         super().__init__()
         self.fc1 = nn.Linear(
             action_space + obs_space, 256)
@@ -56,21 +56,21 @@ LOG_STD_MIN = -5
 
 
 class Actor(nn.Module):
-    def __init__(self, action_space=12, obs_space=34 + 48):
+    def __init__(self, action_space=11, obs_space=34 + 44):
         super().__init__()
         self.fc1 = nn.Linear(obs_space, 256)
         self.fc2 = nn.Linear(256, 256)
         self.fc_mean = nn.Linear(256, action_space)
         self.fc_logstd = nn.Linear(256, action_space)
-        self.active_action_air = np.array([1., 1., 0., 1., 1., 1., 1., 1., 1., 1., 1., 1.])
-        self.active_action_lins = np.array([1.] * 11 + [0.])
+        self.active_action_air = np.array([1., 1., 0., 1., 1., 1., 1., 1., 1., 1., 1.])
+        self.active_action_lins = np.array([1.] * 11)
         # action rescaling
         self.register_buffer(
-            "action_scale", torch.tensor([1., 3.5, 0.5, 1., 1., 1., 1., 1., 1., 1., 1., 0.5],
+            "action_scale", torch.tensor([0.1, .5, 0.1, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02],
                                          dtype=torch.float32)
         )
         self.register_buffer(
-            "action_bias", torch.tensor([0., 3.5, 0.5, 0., 0., 0., 0., 0., 0., 0., 0., 0.5],
+            "action_bias", torch.tensor([0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.],
                                         dtype=torch.float32)
         )
 
@@ -150,7 +150,7 @@ class OptPredictor:
             self.a_optimizer = optim.Adam([self.log_alpha], lr=q_lr)
         else:
             self.alpha = alpha
-        self.rb = ReplayBuffer(int(buffer_size), spaces.Box(low=0, high=1, shape=[14, 12]),
+        self.rb = ReplayBuffer(int(buffer_size), spaces.Box(low=0, high=1, shape=[14, 11]),
                                spaces.Box(low=0, high=1, shape=[1, 34]),
                                self.device, handle_timeout_termination=True)
 
@@ -316,14 +316,14 @@ class OptPredictor:
             # full_obs = self.backbone.decode_with_target(feature_env, feature_loss, torch.tensor(actions))
             # full_obs = full_obs[:, :-1, :]
         else:
-            actions, full_obs = self.backbone.decode_without_target(feature_env, feature_loss, lins=1 + self.t//100000)
+            actions = self.backbone.decode_without_target(feature_env, feature_loss)
             actions = actions.squeeze().detach().cpu().numpy()
         # obs = full_obs[:, :-1, :].squeeze()
         # next_obs = full_obs[:, 1:, :].squeeze()
         obs = feature_env.detach().numpy()
         loss_obs = feature_loss.reshape(1, -1)
         # TRY NOT TO MODIFY: execute the game and log data.
-        return_feature_env, return_feature_loss, loss, reward, save_reward = self.env.step_m1(actions)
+        return_feature_env, return_feature_loss, loss, reward = self.env.step_m1(actions)
         reward /= 30
         if obs.shape[0] < 14:
             obs = np.concatenate([obs, np.array([[self.padding] * (obs.shape[1])] * (14 - obs.shape[0]))])
@@ -354,7 +354,7 @@ class OptPredictor:
         self.rb.add(obs, actions, loss_obs, reward, np.array([True]), [{}])
 
         # TRY NOT TO MODIFY: CRUCIAL step easy to overlook
-        return torch.tensor(return_feature_env), torch.tensor(return_feature_loss), loss, save_reward
+        return torch.tensor(return_feature_env), torch.tensor(return_feature_loss), loss
 
     def start(self, load_model=False, load_rb=False):
         if load_rb:
@@ -364,29 +364,21 @@ class OptPredictor:
             policy_file = Path(os.path.join('model', f"checkpoint_{97300}_2.pt"))
             self.load_state_dict(torch.load(policy_file))
 
-        feature_env, feature_loss, self.best_loss, best_save_reward = self.env.reset()
+        feature_env, feature_loss, self.best_loss = self.env.reset()
         save_loss = self.best_loss
-        best_feature_loss_env, best_feature_reward_env = None, None
+        best_feature_loss_env = None
         for _ in tqdm(range(self.total_timesteps)):
             self.t += 1
-            feature_env, feature_loss, loss, save_reward = self.get_data(feature_env, feature_loss)
+            feature_env, feature_loss, loss = self.get_data(feature_env, feature_loss)
             if loss < save_loss:
                 save_loss = loss
                 best_feature_loss_env = feature_env.detach().cpu().numpy().tolist()
-            if save_reward > best_save_reward:
-                best_save_reward = save_reward
-                best_feature_reward_env = feature_env.detach().cpu().numpy().tolist()
 
             if self.t % 100 == 0:
                 with open('best_5.txt', 'a') as file:
                     file.write(f'{save_loss=}, best_param={best_feature_loss_env} \n')
                 save_loss = float('inf')
                 best_feature_loss_env = None
-
-                with open('best_reward_5.txt', 'a') as file:
-                    file.write(f'{best_save_reward=}, best_param={best_feature_reward_env} \n')
-                best_save_reward = float('-inf')
-                best_feature_reward_env = None
 
 
             if self.t % 100 == 0:
