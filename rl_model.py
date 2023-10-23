@@ -310,9 +310,10 @@ class OptPredictor:
         [self.writer.add_scalar(f"losses/{key}", value, self.t) for
          key, value in self.metric_track.items()]
 
-    def get_data(self, feature_env, feature_loss):
+    def get_data(self, feature_env, feature_loss, lins):
+        new_lins = lins
         if self.t < self.learning_starts or self.plato > 6:
-            actions = self.env.sample()
+            actions, new_lins = self.env.sample()
             # full_obs = self.backbone.decode_with_target(feature_env, feature_loss, torch.tensor(actions))
             # full_obs = full_obs[:, :-1, :]
         else:
@@ -323,8 +324,7 @@ class OptPredictor:
         obs = feature_env.detach().numpy()
         loss_obs = feature_loss.reshape(1, -1)
         # TRY NOT TO MODIFY: execute the game and log data.
-        return_feature_env, return_feature_loss, loss, reward = self.env.step_m1(actions)
-        reward /= 30
+        return_feature_env, return_feature_loss, loss, reward = self.env.step_m1(actions, new_lins)
         if obs.shape[0] < 14:
             obs = np.concatenate([obs, np.array([[self.padding] * (obs.shape[1])] * (14 - obs.shape[0]))])
         if actions.shape[0] < 14:
@@ -332,7 +332,7 @@ class OptPredictor:
                 [actions, np.array([[self.padding] * (actions.shape[1])] * (14 - actions.shape[0]))])
 
         if loss is None:
-            return_feature_env, return_feature_loss, loss = feature_env, feature_loss, float('inf')
+            return_feature_env, return_feature_loss, loss, new_lins = feature_env, feature_loss, float('inf'), lins
             self.plato += 1
         elif loss < self.best_loss:
             self.plato = 0
@@ -354,7 +354,7 @@ class OptPredictor:
         self.rb.add(obs, actions, loss_obs, reward, np.array([True]), [{}])
 
         # TRY NOT TO MODIFY: CRUCIAL step easy to overlook
-        return torch.tensor(return_feature_env), torch.tensor(return_feature_loss), loss
+        return torch.tensor(return_feature_env), torch.tensor(return_feature_loss), loss, new_lins
 
     def start(self, load_model=False, load_rb=False):
         if load_rb:
@@ -364,12 +364,12 @@ class OptPredictor:
             policy_file = Path(os.path.join('model', f"checkpoint_{97300}_2.pt"))
             self.load_state_dict(torch.load(policy_file))
 
-        feature_env, feature_loss, self.best_loss = self.env.reset()
+        feature_env, feature_loss, self.best_loss, lins = self.env.reset()
         save_loss = self.best_loss
         best_feature_loss_env = None
         for _ in tqdm(range(self.total_timesteps)):
             self.t += 1
-            feature_env, feature_loss, loss = self.get_data(feature_env, feature_loss)
+            feature_env, feature_loss, loss, lins = self.get_data(feature_env, feature_loss, lins)
             if loss < save_loss:
                 save_loss = loss
                 best_feature_loss_env = feature_env.detach().cpu().numpy().tolist()

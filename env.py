@@ -51,7 +51,7 @@ class OpticEnv:
             loss, feature_loss, reward = self.calc_loss_from_model(lins=2)
             feature_env = self.prepare_m1_feature_from_conf(conf)
             self.loss = loss
-            return feature_env, feature_loss, loss
+            return feature_env, feature_loss, loss, 2
 
         elif model == 2:
             conf = self.reset_conf_2(quantity)
@@ -163,7 +163,7 @@ class OpticEnv:
         probability = np.array([0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5])
         probability = probability / np.sum(probability)
         quantity = np.random.choice(list(range(1, 8)), 1, p=probability)
-        return empty_start_random(quantity[0])
+        return empty_start_random(quantity[0]), quantity
 
     def step_m1(self, actions, lins):
         self.step_pass_m1 += 1
