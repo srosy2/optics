@@ -108,8 +108,8 @@ class Actor(nn.Module):
 
 class OptPredictor:
     def __init__(self, autotune=True, alpha=0.2, target_network_frequency=1, policy_frequency=2,
-                 q_lr=1e-3, policy_lr=3e-4, backbone_lr=7e-4, learning_starts=1e2, batch_size=256, gamma=0.99, tau=0.005,
-                 buffer_size=10000, total_timesteps=1000000, cuda=False, torch_deterministic=True):
+                 q_lr=1e-3, policy_lr=3e-4, backbone_lr=7e-4, learning_starts=1000000, batch_size=256, gamma=0.99, tau=0.005,
+                 buffer_size=15000, total_timesteps=1000000, cuda=False, torch_deterministic=True):
         super().__init__()
         run_name = f"OpticSac__{int(time.time())}"
         self.writer = SummaryWriter(f"runs/{run_name}")
@@ -151,9 +151,9 @@ class OptPredictor:
             self.a_optimizer = optim.Adam([self.log_alpha], lr=q_lr)
         else:
             self.alpha = alpha
-        self.rb = ReplayBuffer(int(buffer_size), spaces.Box(low=0, high=1, shape=[14, 12]),
-                               spaces.Box(low=0, high=1, shape=[1, 34]),
-                               self.device, handle_timeout_termination=True)
+        # self.rb = ReplayBuffer(int(buffer_size), spaces.Box(low=0, high=1, shape=[14, 12]),
+        #                        spaces.Box(low=0, high=1, shape=[1, 34]),
+        #                        self.device, handle_timeout_termination=True)
 
     def update_target_network(self):
         for param, target_param in zip(self.qf1.parameters(), self.qf1_target.parameters()):
@@ -314,11 +314,11 @@ class OptPredictor:
     def get_data(self, feature_env, feature_loss, lins):
         new_lins = lins
         if self.t < self.learning_starts or self.plato > 6:
-            if self.t < self.learning_starts:
-                quantity = (self.t // (math.ceil(self.learning_starts / 7) + 1)) + 1
-                actions, new_lins = self.env.sample(lins=quantity)
-            else:
-                actions, new_lins = self.env.sample()
+            # if self.t < self.learning_starts:
+            #     quantity = (self.t // (math.ceil(self.learning_starts / 7) + 1)) + 1
+            #     actions, new_lins = self.env.sample(lins=quantity)
+            # else:
+            actions, new_lins = self.env.sample()
             # full_obs = self.backbone.decode_with_target(feature_env, feature_loss, torch.tensor(actions))
             # full_obs = full_obs[:, :-1, :]
         else:
@@ -357,8 +357,8 @@ class OptPredictor:
         # TRY NOT TO MODIFY: save data to reply buffer; handle `terminal_observation`
         # print(obs.shape)
         # print(actions.shape)
-        if obs_shape == act_shape:
-            self.rb.add(obs, actions, loss_obs, reward, np.array([True]), [{}])
+        # if obs_shape == act_shape:
+        #     self.rb.add(obs, actions, loss_obs, reward, np.array([True]), [{}])
 
         # TRY NOT TO MODIFY: CRUCIAL step easy to overlook
         return torch.tensor(return_feature_env), torch.tensor(return_feature_loss), loss, new_lins
@@ -388,16 +388,16 @@ class OptPredictor:
                 best_feature_loss_env = None
 
 
-            if self.t % 100 == 0:
-                save_to_pkl('sac_replay_buffer_2', self.rb, 0)
+            # if self.t % 100 == 0:
+            #     save_to_pkl('sac_replay_buffer_2', self.rb, 0)
 
-            if self.t > self.learning_starts:
-                self.train(self.rb.sample(self.batch_size))
-                if self.t % 10 == 0:
-                    self.save_info()
-                if self.t % 100 == 0:
-                    torch.save(
-                        self.state_dict(),
-                        os.path.join('model', f"checkpoint_{self.t}_2.pt"),
-                    )
-        self.writer.close()
+        #     if self.t > self.learning_starts:
+        #         self.train(self.rb.sample(self.batch_size))
+        #         if self.t % 10 == 0:
+        #             self.save_info()
+        #         if self.t % 100 == 0:
+        #             torch.save(
+        #                 self.state_dict(),
+        #                 os.path.join('model', f"checkpoint_{self.t}_2.pt"),
+        #             )
+        # self.writer.close()
